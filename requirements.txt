@@ -1,0 +1,12 @@
+streamlit
+pandas
+sqlalchemy
+psycopg2-binary
+python-dotenv
+langchain
+langchain-openai
+langchain-community
+pypdf
+faiss-cpu
+prophet
+plotly
