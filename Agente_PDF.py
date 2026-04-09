@@ -14,7 +14,7 @@ from langchain_core.output_parsers import StrOutputParser
 load_dotenv()
 
 # La ruta donde guardas tus manuales corporativos estáticos
-CARPETA_DOCUMENTOS = "../Documentos_Negocio" 
+CARPETA_DOCUMENTOS = "Documentos_Negocio" 
 
 class AgenteConocimiento:
     def __init__(self):
@@ -22,7 +22,7 @@ class AgenteConocimiento:
         self.llm = ChatOpenAI(model="gpt-4o", temperature=0)
         self.chain = self._crear_memoria_corporativa()
 
-def _crear_memoria_corporativa(self):
+    def _crear_memoria_corporativa(self):
         # 1. RASTREADOR INDESTRUCTIBLE DE CARPETAS
         ruta_1 = os.path.join(os.getcwd(), "Documentos_Negocio") 
         ruta_2 = os.path.join(os.path.dirname(__file__), "Documentos_Negocio") 
@@ -43,24 +43,18 @@ def _crear_memoria_corporativa(self):
         loader = PyPDFDirectoryLoader(ruta_absoluta)
         documentos = loader.load()
 
-        # 2. Leer todos los PDFs de la carpeta
-        loader = PyPDFDirectoryLoader(ruta_absoluta)
-        documentos = loader.load()
-
         # 3. Cortar el texto en fragmentos GIGANTES para no perder contexto
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=3000, chunk_overlap=600)
         fragmentos = text_splitter.split_documents(documentos)
 
         # 4. Convertir a vectores y crear el buscador (Retriever) con Inteligencia MMR
-        # MMR (Maximal Marginal Relevance) escanea 100 fragmentos (fetch_k) y elige los 30 (k)
-        # que no solo sean similares, sino que aporten información DIVERSA para evitar redundancia.
         vectorstore = FAISS.from_documents(documents=fragmentos, embedding=OpenAIEmbeddings())
         retriever = vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={"k": 30, "fetch_k": 100, "lambda_mult": 0.5}
         )
 
-        # 5. Crear el formato del prompt (INSTRUCCIONES EXTREMAS PARA TARS)
+        # 5. Crear el formato del prompt
         template = """
         Eres TARS, un Auditor Corporativo e Inteligencia Artificial experta en las políticas, 
         manuales y guías de producto de la empresa.
