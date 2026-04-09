@@ -14,7 +14,7 @@ from langchain_core.output_parsers import StrOutputParser
 load_dotenv()
 
 # La ruta donde guardas tus manuales corporativos estáticos
-CARPETA_DOCUMENTOS = "Documentos_Negocio"
+CARPETA_DOCUMENTOS = "../Documentos_Negocio" 
 
 class AgenteConocimiento:
     def __init__(self):
@@ -22,12 +22,26 @@ class AgenteConocimiento:
         self.llm = ChatOpenAI(model="gpt-4o", temperature=0)
         self.chain = self._crear_memoria_corporativa()
 
-    def _crear_memoria_corporativa(self):
-        # 1. Verificar si la carpeta existe y tiene documentos
-        ruta_absoluta = os.path.abspath(os.path.join(os.path.dirname(__file__), CARPETA_DOCUMENTOS))
-        if not os.path.exists(ruta_absoluta) or not os.listdir(ruta_absoluta):
-            print(f"⚠️ Advertencia: No se encontraron PDFs en {ruta_absoluta}")
+def _crear_memoria_corporativa(self):
+        # 1. RASTREADOR INDESTRUCTIBLE DE CARPETAS
+        ruta_1 = os.path.join(os.getcwd(), "Documentos_Negocio") 
+        ruta_2 = os.path.join(os.path.dirname(__file__), "Documentos_Negocio") 
+        
+        ruta_absoluta = None
+        for ruta_prueba in [ruta_1, ruta_2, CARPETA_DOCUMENTOS, "Documentos_Negocio"]:
+            if os.path.exists(ruta_prueba) and os.path.isdir(ruta_prueba):
+                # Verificar si adentro hay al menos un PDF
+                if any(archivo.endswith('.pdf') for archivo in os.listdir(ruta_prueba)):
+                    ruta_absoluta = ruta_prueba
+                    break
+        
+        if not ruta_absoluta:
+            print("⚠️ Advertencia: No se encontraron PDFs en ninguna ruta de la nube.")
             return None
+
+        # 2. Leer todos los PDFs de la carpeta encontrada
+        loader = PyPDFDirectoryLoader(ruta_absoluta)
+        documentos = loader.load()
 
         # 2. Leer todos los PDFs de la carpeta
         loader = PyPDFDirectoryLoader(ruta_absoluta)

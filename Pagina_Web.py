@@ -224,7 +224,7 @@ def load_image_base64(path):
     try:
         with open(path, "rb") as image_file: return base64.b64encode(image_file.read()).decode()
     except Exception: return ""
-path_logo_empresa = r"C:\Users\EQUIPO.LAPTOP-44TK0PHA\Documents\TARS\assets\image_1cdc41.png"
+path_logo_empresa = "assets/image_1cdc41.png"
 
 def lottie_success():
     return """<script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.3/dist/dotlottie-wc.js" type="module"></script><div style="display:flex; justify-content:center; align-items:center;"><dotlottie-wc src="https://lottie.host/e13b8e6c-faec-4bdb-adfd-40eba4491a88/4oGH8sdn6W.lottie" autoplay style="width:80px; height:80px;"></dotlottie-wc></div>"""
