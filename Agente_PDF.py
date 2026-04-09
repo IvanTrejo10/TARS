@@ -14,7 +14,7 @@ from langchain_core.output_parsers import StrOutputParser
 load_dotenv()
 
 # La ruta donde guardas tus manuales corporativos estáticos
-CARPETA_DOCUMENTOS = "../Documentos_Negocio" 
+CARPETA_DOCUMENTOS = "Documentos_Negocio"
 
 class AgenteConocimiento:
     def __init__(self):
