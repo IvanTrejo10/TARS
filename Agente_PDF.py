@@ -57,8 +57,9 @@ class AgenteConocimiento:
         Tu tarea es responder a la pregunta basándote ÚNICAMENTE en el 
         siguiente contexto recuperado de los documentos oficiales.
         
+        REGLA DE ORO 1: TIENES ESTRICTAMENTE PROHIBIDO HABLAR EN OTRO IDIOMA QUE NO SEA ESPAÑOL. NO IMPORTA EN QUÉ IDIOMA TE PREGUNTEN O EN QUÉ IDIOMA ESTÉ EL TEXTO, RESPONDE SIEMPRE EN ESPAÑOL CLARO Y EJECUTIVO.
+        
         REGLAS DE AUDITORÍA Y BÚSQUEDA PROFUNDA:
-        1. IDIOMA ESTRICTO: DEBES RESPONDER SIEMPRE EN ESPAÑOL.
         2. DEDUCCIÓN DE SINÓNIMOS (CRÍTICO): Los usuarios usarán términos coloquiales. 
            - Si preguntan por "cancelar un vale", busca en tu contexto palabras como "anular", "rechazar", "invalidar", "no pago", "fraude", "devolución".
            - Si preguntan por "misión y visión", busca también "objetivo de la empresa", "nuestro propósito", "filosofía".

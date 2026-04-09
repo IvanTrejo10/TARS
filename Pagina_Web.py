@@ -21,7 +21,7 @@ except ImportError:
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="TARS | Enterprise Intelligence", layout="wide", initial_sidebar_state="expanded")
 
-# --- CONEXIÓN A BASE DE DATOS Y SEGURIDAD ---
+# --- CONEXIÓN A BASE DE DATOS Y SEGURIDAD (AWS RDS) ---
 load_dotenv()
 try:
     engine = create_engine(f'postgresql://{os.getenv("DB_USER")}:{os.getenv("DB_PASSWORD")}@{os.getenv("DB_HOST")}:{os.getenv("DB_PORT")}/{os.getenv("DB_NAME")}')
@@ -35,7 +35,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS usuarios_tars (
                 id SERIAL PRIMARY KEY, correo VARCHAR(150) UNIQUE NOT NULL,
                 usuario VARCHAR(100) NOT NULL, password_hash VARCHAR(256) NOT NULL,
-                pais VARCHAR(50) NOT NULL, marca VARCHAR(100) NOT NULL,
+                pais VARCHAR(500) NOT NULL, marca VARCHAR(500) NOT NULL,
                 rol VARCHAR(20) DEFAULT 'USER', aprobado BOOLEAN DEFAULT FALSE,
                 estado VARCHAR(20) DEFAULT 'PENDIENTE'
             )
@@ -65,10 +65,12 @@ MARCAS_POR_PAIS = {
 # --- LÓGICA DE BASE DE DATOS ---
 def hash_password(password): return hashlib.sha256(str.encode(password)).hexdigest()
 
-def crear_usuario(correo, usuario, password, pais, marca):
+def crear_usuario(correo, usuario, password, pais_list, marca_list):
+    pais_str = "|".join(pais_list)
+    marca_str = "|".join(marca_list)
     try:
         with engine.begin() as conn:
-            conn.execute(text(f"INSERT INTO usuarios_tars (correo, usuario, password_hash, pais, marca, estado) VALUES ('{correo}', '{usuario}', '{hash_password(password)}', '{pais}', '{marca}', 'PENDIENTE')"))
+            conn.execute(text(f"INSERT INTO usuarios_tars (correo, usuario, password_hash, pais, marca, estado) VALUES ('{correo}', '{usuario}', '{hash_password(password)}', '{pais_str}', '{marca_str}', 'PENDIENTE')"))
         return True
     except Exception: return False
 
@@ -102,20 +104,24 @@ def borrar_chat_especifico(chat_id):
     with engine.begin() as conn:
         conn.execute(text(f"DELETE FROM historial_chat WHERE chat_id = '{chat_id}'"))
 
-# --- MOTOR DE KPIs MEJORADO (CON ESCUDO ANTI-INSEGURIDAD GLOBAL) ---
-@st.cache_data(ttl=30)
+# ====================================================================
+# 🚀 MOTOR DE KPIs MEJORADO (CACHÉ GLOBAL DE 1 HORA CON INDICADOR NATIVO)
+# ====================================================================
+# NOTA: Al no poner 'show_spinner=False', Streamlit mostrará su circulito pequeño arriba a la derecha
+@st.cache_data(ttl=3600)
 def obtener_kpis(pais_filtro, marca_filtro):
     filtro_pais = "1=1"
-    if pais_filtro not in ["TODOS (Global)", "Global"]:
-        if pais_filtro == "Mexico":
+    # Aceptamos los nombres limpios de la interfaz
+    if pais_filtro not in ["TODOS (Global)", "Global", "Todos los Países"]:
+        if pais_filtro in ["Mexico", "México", "MEXICO", "MÉXICO"]:
             filtro_pais = "(TRIM(UPPER(pais)) = 'MEXICO' OR TRIM(UPPER(pais)) = 'MÉXICO')"
-        elif pais_filtro == "Peru":
+        elif pais_filtro in ["Peru", "Perú", "PERU", "PERÚ"]:
             filtro_pais = "(TRIM(UPPER(pais)) = 'PERU' OR TRIM(UPPER(pais)) = 'PERÚ')"
         else:
             filtro_pais = f"TRIM(UPPER(pais)) = UPPER('{pais_filtro}')"
 
     def armar_filtro_marca(col_marca):
-        if marca_filtro in ["TODAS", "TODAS (Director)", "ACCESO TOTAL"]: return "1=1"
+        if marca_filtro in ["TODAS", "TODAS (Director)", "ACCESO TOTAL", "Todas las Marcas"]: return "1=1"
         if marca_filtro == "TODOS LOS VALES": return f"TRIM(UPPER({col_marca})) IN ('RAPI VALE', 'VIVA VALE', 'VALE PERÚ', 'VALE PERU')"
         if marca_filtro == "Vale Perú": return f"(TRIM(UPPER({col_marca})) = 'VALE PERÚ' OR TRIM(UPPER({col_marca})) = 'VALE PERU')"
         return f"TRIM(UPPER({col_marca})) = UPPER('{marca_filtro}')"
@@ -123,7 +129,7 @@ def obtener_kpis(pais_filtro, marca_filtro):
     filtro_base_cart_cob = f"{filtro_pais} AND {armar_filtro_marca('unidad_de_negocio')}"
     filtro_tramites_base = f"{filtro_pais} AND {armar_filtro_marca('marca')}"
 
-    # 🚨 BLINDAJE ANTI-INSEGURIDAD GLOBAL PARA TODAS LAS TABLAS 🚨
+    # 🚨 BLINDAJE ANTI-INSEGURIDAD GLOBAL 🚨
     filtro_rutas_inseguras = "ruta NOT IN (SELECT DISTINCT ruta FROM cartera_master WHERE subdireccion ILIKE '%Inseguridad%' AND ruta IS NOT NULL)"
 
     filtro_cartera = f"{filtro_base_cart_cob} AND (subdireccion NOT ILIKE '%Inseguridad%' OR subdireccion IS NULL)"
@@ -141,7 +147,6 @@ def obtener_kpis(pais_filtro, marca_filtro):
 
     try:
         with engine.connect() as conn:
-            # 1. CARTERA
             fecha_max_cart = conn.execute(text(f"SELECT MAX(fecha) FROM cartera_master WHERE {filtro_cartera}")).scalar()
             if fecha_max_cart:
                 fecha_str_cart = str(fecha_max_cart)[:10]
@@ -168,7 +173,6 @@ def obtener_kpis(pais_filtro, marca_filtro):
                     kpis["cartera"] = f"${cart_tot:,.2f}"; kpis["cartera_corriente"] = f"${cart_sin_atraso:,.2f}"; kpis["cartera_atraso"] = f"${cart_tot - cart_sin_atraso:,.2f}"
                     if cli_tot > 0: kpis["ip"] = f"{(cli_corr / cli_tot) * 100:.1f}%"
 
-            # 2. COBRANZA
             fecha_max_cob = conn.execute(text(f"SELECT MAX(fecha_corte) FROM cobranza_master WHERE {filtro_cobranza}")).scalar()
             if fecha_max_cob:
                 if isinstance(fecha_max_cob, str): dt_cob = datetime.datetime.strptime(str(fecha_max_cob)[:10], '%Y-%m-%d').date()
@@ -189,7 +193,6 @@ def obtener_kpis(pais_filtro, marca_filtro):
                 res_cob = conn.execute(text(query_cob)).fetchone()
                 if res_cob: kpis["cuota_cobranza"] = f"${float(res_cob[0] or 0):,.2f}"; kpis["recuperacion"] = f"${float(res_cob[1] or 0):,.2f}"
 
-            # 3. TRÁMITES
             try:
                 fecha_max_tram = conn.execute(text(f"SELECT MAX(fecha_desembolso) FROM tramites_master WHERE {filtro_tramites}")).scalar()
             except:
@@ -221,13 +224,13 @@ def load_image_base64(path):
     try:
         with open(path, "rb") as image_file: return base64.b64encode(image_file.read()).decode()
     except Exception: return ""
-path_logo_empresa = "assets/image_1cdc41.png"
+path_logo_empresa = r"C:\Users\EQUIPO.LAPTOP-44TK0PHA\Documents\TARS\assets\image_1cdc41.png"
 
 def lottie_success():
     return """<script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.3/dist/dotlottie-wc.js" type="module"></script><div style="display:flex; justify-content:center; align-items:center;"><dotlottie-wc src="https://lottie.host/e13b8e6c-faec-4bdb-adfd-40eba4491a88/4oGH8sdn6W.lottie" autoplay style="width:80px; height:80px;"></dotlottie-wc></div>"""
 
 def lottie_thinking_cube():
-    return """<script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.3/dist/dotlottie-wc.js" type="module"></script><div style="display:flex; justify-content:flex-start; align-items:center; background-color: rgba(49, 130, 206, 0.1); padding: 10px; border-radius: 10px; border: 1px solid #3182ce;"><dotlottie-wc src="https://lottie.host/26dec926-8037-4911-a869-e16d56fe39ca/oSldk3HFRZ.lottie" autoplay loop style="width:60px; height:60px;"></dotlottie-wc><span style="margin-left: 15px; color:#3182ce; font-weight:600; font-size: 1.1em; animation: pulse 1.5s infinite;">TARS analizando los datos... Por favor espera.</span></div>"""
+    return """<script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.3/dist/dotlottie-wc.js" type="module"></script><div style="display:flex; justify-content:flex-start; align-items:center; background-color: rgba(49, 130, 206, 0.1); padding: 10px; border-radius: 10px; border: 1px solid #3182ce;"><dotlottie-wc src="https://lottie.host/26dec926-8037-4911-a869-e16d56fe39ca/oSldk3HFRZ.lottie" autoplay loop style="width:60px; height:60px;"></dotlottie-wc><span style="margin-left: 15px; color:#3182ce; font-weight:600; font-size: 1.1em; animation: pulse 1.5s infinite;">TARS analizando y calculando...</span></div>"""
 
 def lottie_robot_hello():
     return """
@@ -293,21 +296,24 @@ st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
 
-html, body, [class*="css"], .stApp, .stApp > header {{ font-family: 'Inter', sans-serif; {background_css} color: {text_color} !important; }}
+html, body, [class*="css"], .stApp, .stApp > header {{ font-family: 'Inter', sans-serif; {background_css} color: {text_color} !important; transition: all 0.3s ease; }}
 p, h1, h2, h3, h4, h5, h6, span, label, div:not(.tars-title) {{ color: {text_color} !important; }}
 
-.stTextInput>div>div>input {{ border-radius: 6px; background-color: {panel_color} !important; color: {text_color} !important; border: 1px solid {border_color}; }}
-.stTextInput>div>div>input:focus {{ border-color: {accent_color}; box-shadow: none; }}
-.stSelectbox>div>div>div {{ background-color: {panel_color} !important; border: 1px solid {border_color}; color: {text_color} !important; border-radius: 6px; }}
+.stTextInput>div>div>input {{ border-radius: 6px; background-color: {panel_color} !important; color: {text_color} !important; border: 1px solid {border_color}; transition: all 0.3s ease; }}
+.stTextInput>div>div>input:focus {{ border-color: {accent_color}; box-shadow: 0 0 5px {accent_color}; }}
+.stSelectbox>div>div>div, .stMultiSelect>div>div>div {{ background-color: {panel_color} !important; border: 1px solid {border_color}; color: {text_color} !important; border-radius: 6px; transition: all 0.3s ease; }}
 
-.stButton>button {{ border-radius: 6px; font-weight: 600; transition: all 0.2s ease; background-color: {panel_color} !important; border: 1px solid {border_color};}}
+.stButton>button {{ border-radius: 6px; font-weight: 600; transition: all 0.3s ease; background-color: {panel_color} !important; border: 1px solid {border_color};}}
 .stButton>button * {{ color: {text_color} !important; }}
-.stButton>button:hover {{ border-color: {accent_color} !important; }}
+.stButton>button:hover {{ border-color: {accent_color} !important; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }}
 .stButton>button:hover * {{ color: {accent_color} !important; }}
 
-.btn-primary>button {{ background-color: {accent_color} !important; border: none !important; text-transform: uppercase; letter-spacing: 0.5px; }}
+.btn-primary>button {{ background-color: {accent_color} !important; border: none !important; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
 .btn-primary>button * {{ color: white !important; }}
-.btn-primary>button:hover {{ filter: brightness(1.2); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0, 0.3); }}
+.btn-primary>button:hover {{ filter: brightness(1.2); transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0, 0.2); }}
+
+.btn-danger>button {{ background-color: #e53e3e !important; color: white !important; border: none !important; }}
+.btn-danger>button:hover {{ filter: brightness(1.2); transform: scale(1.02); }}
 
 [data-testid="collapsedControl"] {{ display: flex !important; visibility: visible !important; opacity: 1 !important; z-index: 999999 !important; background-color: {panel_color} !important; border-radius: 8px !important; border: 1px solid {border_color} !important; padding: 5px !important; }}
 [data-testid="collapsedControl"] svg {{ fill: {accent_color} !important; color: {accent_color} !important; }}
@@ -316,27 +322,26 @@ p, h1, h2, h3, h4, h5, h6, span, label, div:not(.tars-title) {{ color: {text_col
 [data-testid="stHeader"] {{ background: transparent !important; height: 0px !important; }}
 #MainMenu {{visibility: hidden;}} footer {{visibility: hidden;}}
 
-.stChatMessage.user {{ background-color: {panel_color} !important; border-radius: 12px 12px 0px 12px; border: 1px solid {border_color}; }}
+.stChatMessage.user {{ background-color: {panel_color} !important; border-radius: 12px 12px 0px 12px; border: 1px solid {border_color}; transition: all 0.3s ease; }}
 .stChatMessage.user * {{ color: {text_color} !important; }}
-.stChatMessage.assistant {{ background-color: {accent_color} !important; border-radius: 12px 12px 12px 0px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }}
+.stChatMessage.assistant {{ background-color: {accent_color} !important; border-radius: 12px 12px 12px 0px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s ease; }}
 .stChatMessage.assistant * {{ color: white !important; }}
 
 .tars-title {{ font-size: 4.5rem; font-weight: 800; text-align: center; background: linear-gradient(90deg, #3182ce, #63b3ed, #3182ce); background-size: 200% auto; color: transparent !important; -webkit-background-clip: text; animation: gradientAnim 3s linear infinite; margin-bottom: -15px; padding-top: 10px; display: inline-block; width: 100%; }}
 @keyframes gradientAnim {{ to {{ background-position: 200% center; }} }}
 
-[data-testid="stSidebar"] {{ background-color: {panel_color} !important; border-right: 1px solid {border_color}; padding-top: 20px; }}
+[data-testid="stSidebar"] {{ background-color: {panel_color} !important; border-right: 1px solid {border_color}; padding-top: 20px; transition: background-color 0.3s ease; }}
 .radio-modelos > div {{ background-color: {panel_color} !important; padding: 10px; border-radius: 8px; border: 1px solid {border_color}; }}
 .menu-letters {{ text-align: center; font-weight: 800; font-size: 1.5rem; letter-spacing: 6px; color: {accent_color} !important; text-transform: uppercase; margin-bottom: 5px; }}
 .menu-line {{ height: 2px; width: 40px; background-color: {accent_color}; margin: 0 auto 20px auto; border-radius: 2px; }}
 
 .tars-table {{ width: 100%; border-collapse: collapse; font-size: 0.9em; font-family: 'Inter', sans-serif; background-color: {panel_color}; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-top: 20px; margin-bottom: 20px; }}
 .tars-table thead tr {{ background-color: {accent_color}; color: white; text-align: left; font-weight: 600; }}
-.tars-table th, .tars-table td {{ padding: 12px 15px; border-bottom: 1px solid {border_color}; }}
+.tars-table th, .tars-table td {{ padding: 12px 15px; border-bottom: 1px solid {border_color}; color: {text_color}; }}
 .tars-table tbody tr:nth-of-type(even) {{ background-color: rgba(0,0,0,0.02); }}
 .tars-table tbody tr:hover {{ background-color: {table_hover}; cursor: pointer; }}
-.tars-table tbody td {{ color: {text_color}; }}
 
-[data-testid="stMetricValue"] {{ font-size: 1.6rem !important; color: {accent_color} !important; font-weight: 800; }}
+[data-testid="stMetricValue"] {{ font-size: 1.6rem !important; color: {accent_color} !important; font-weight: 800; transition: color 0.3s ease; }}
 [data-testid="stMetricLabel"] {{ font-size: 0.75rem !important; color: gray !important; text-transform: uppercase; letter-spacing: 0.5px; }}
 </style>
 """, unsafe_allow_html=True)
@@ -357,8 +362,7 @@ def iniciar_agentes():
     path_padre = os.path.dirname(path_actual)
     if path_padre not in sys.path: sys.path.append(path_padre)
     
-    agente_s, agente_p, agente_pr, err = None, None, None, "No inicializado."
-    
+    agente_s, agente_p, err = None, None, "No inicializado."
     try: 
         from Modulo_IA.Agente_SQL import agente_tars
         agente_s = agente_tars
@@ -376,21 +380,15 @@ def iniciar_agentes():
         try:
             from Agente_PDF import agente_pdf
             agente_p = agente_pdf
-        except Exception:
+        except Exception as e2:
             pass
-
-    try:
-        from Agente_Predictivo import agente_predictivo
-        agente_pr = agente_predictivo
-    except Exception:
-        agente_pr = None
         
-    return agente_s, agente_p, agente_pr, err
+    return agente_s, agente_p, err
 
-agente_tars, agente_pdf, agente_predictivo, error_agente = iniciar_agentes()
+agente_tars, agente_pdf, error_agente = iniciar_agentes()
 sql_disponible = True if agente_tars else False
 pdf_disponible = True if agente_pdf else False
-predictivo_disponible = True if agente_predictivo else False
+
 
 if st.session_state.logged_in:
     with st.sidebar:
@@ -409,7 +407,7 @@ if st.session_state.logged_in:
         st.markdown("<div class='radio-modelos'>", unsafe_allow_html=True)
         st.session_state.modelo_seleccionado = st.radio(
             label="Selecciona la IA:",
-            options=["GPT-4o (Máxima Inteligencia)", "GPT-4o-mini (Súper Rápido)", "TARS Oracle (Proyecciones)"],
+            options=["GPT-4o (Máxima Inteligencia)", "GPT-4o-mini (Súper Rápido)"],
             label_visibility="collapsed"
         )
         st.markdown("</div>", unsafe_allow_html=True)
@@ -425,16 +423,29 @@ if st.session_state.logged_in:
                 col1, col2 = st.columns([4, 1])
                 with col1:
                     prefijo = "🟢 " if chat['chat_id'] == st.session_state.chat_id_actual else "💬 "
-                    if st.button(f"{prefijo}{chat['titulo'][:18]}...", key=f"load_{chat['chat_id']}", use_container_width=True):
+                    if st.button(f"{prefijo}{chat['titulo'][:15]}...", key=f"load_{chat['chat_id']}", use_container_width=True):
                         st.session_state.chat_id_actual = chat['chat_id']
                         st.session_state.titulo_chat_actual = chat['titulo']
                         st.rerun()
                 with col2:
                     if st.button("🗑️", key=f"del_{chat['chat_id']}"):
+                        st.session_state[f"confirm_del_{chat['chat_id']}"] = True
+
+                # CONFIRMACIÓN DE BORRADO SEGURO
+                if st.session_state.get(f"confirm_del_{chat['chat_id']}", False):
+                    st.warning("¿Seguro que deseas borrarlo?")
+                    cx, cy = st.columns(2)
+                    st.markdown("<div class='btn-danger'>", unsafe_allow_html=True)
+                    if cx.button("Sí", key=f"y_{chat['chat_id']}", use_container_width=True):
                         borrar_chat_especifico(chat['chat_id'])
                         if st.session_state.chat_id_actual == chat['chat_id']:
                             st.session_state.chat_id_actual = str(uuid.uuid4())
                             st.session_state.titulo_chat_actual = "Nueva Consulta"
+                        del st.session_state[f"confirm_del_{chat['chat_id']}"]
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    if cy.button("No", key=f"n_{chat['chat_id']}", use_container_width=True):
+                        del st.session_state[f"confirm_del_{chat['chat_id']}"]
                         st.rerun()
 
         st.divider()
@@ -444,7 +455,7 @@ if st.session_state.logged_in:
         
         st.divider()
         
-        st.markdown(f"""<div style='padding:10px; background-color:{bg_color}; border-radius:8px; border:1px solid {border_color}; margin-bottom:10px;'><p style='margin:0; font-size:0.7em; color:gray !important;'>PERFIL ACTIVO</p><p style='margin:0; font-weight:600; font-size:0.9em; color:{text_color} !important;'>{st.session_state.user_info['usuario']}</p><p style='margin:0; font-size:0.7em; color:{accent_color} !important;'>{st.session_state.user_info['marca']}</p></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style='padding:10px; background-color:{bg_color}; border-radius:8px; border:1px solid {border_color}; margin-bottom:10px;'><p style='margin:0; font-size:0.7em; color:gray !important;'>PERFIL ACTIVO</p><p style='margin:0; font-weight:600; font-size:0.9em; color:{text_color} !important;'>{st.session_state.user_info['usuario']}</p></div>""", unsafe_allow_html=True)
         
         components.html(lottie_theme_interactive(), height=125)
             
@@ -496,29 +507,37 @@ if not st.session_state.logged_in:
                         elif estado_actual == 'RECHAZADO':
                             st.error("🚫 ACCESO DENEGADO: Tu solicitud ha sido rechazada.")
                         else: 
-                            st.warning("⏳ CUENTA EN VALIDACIÓN: Tu perfil está pendiente.")
+                            st.warning("⏳ CUENTA EN VALIDACIÓN: Tu perfil está pendiente de revisión por un Administrador.")
                     else: st.error("❌ Credenciales inválidas.")
 
         with tab_registro:
             reg_correo = st.text_input("Correo Institucional (Nuevo)")
             reg_usuario = st.text_input("Nombre Completo")
             reg_pass = st.text_input("Crea una Contraseña", type="password")
-            reg_pais = st.selectbox("País de Operación", list(MARCAS_POR_PAIS.keys()))
-            reg_marca = st.selectbox("Marca Asignada", MARCAS_POR_PAIS[reg_pais])
+            
+            paises_disponibles = list(MARCAS_POR_PAIS.keys())
+            reg_pais = st.multiselect("País de Operación (Puedes elegir varios)", paises_disponibles)
+            
+            marcas_disponibles = []
+            for p in reg_pais:
+                marcas_disponibles.extend(MARCAS_POR_PAIS[p])
+            marcas_disponibles = list(set(marcas_disponibles)) # Quitar duplicados
+            
+            reg_marca = st.multiselect("Marca Asignada (Puedes elegir varias)", marcas_disponibles)
             
             st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
             if st.button("Registrar Perfil", use_container_width=True):
-                if reg_correo and reg_usuario and reg_pass:
+                if reg_correo and reg_usuario and reg_pass and reg_pais and reg_marca:
                     if crear_usuario(reg_correo, reg_usuario, reg_pass, reg_pais, reg_marca):
                         components.html(lottie_success(), height=90)
                         st.success("✅ Perfil registrado exitosamente. El estado es PENDIENTE.")
                     else: st.error("❌ El correo ya está registrado.")
-                else: st.warning("⚠️ Llena todos los campos.")
+                else: st.warning("⚠️ Llena todos los campos y selecciona al menos un país y marca.")
             st.markdown("</div>", unsafe_allow_html=True)
 
 else:
     if st.session_state.user_info["rol"] == "ADMIN":
-        st.markdown(f"<h2 style='color: {text_color} !important;'>🛡️ Panel de Control e Historial</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='color: {text_color} !important;'>🛡️ Panel de Control Global</h2>", unsafe_allow_html=True)
         
         with engine.connect() as conn:
             usuarios_df = pd.read_sql("SELECT id, correo, usuario, pais, marca, rol, estado FROM usuarios_tars ORDER BY id ASC", conn)
@@ -526,49 +545,90 @@ else:
             
         usuarios_df = pd.merge(usuarios_df, chats_count, left_on="correo", right_on="correo_usuario", how="left")
         usuarios_df['total_chats'] = usuarios_df['total_chats'].fillna(0).astype(int)
+        
+        usuarios_df = usuarios_df.drop_duplicates(subset=['correo'])
         if 'correo_usuario' in usuarios_df.columns:
             usuarios_df.drop(columns=['correo_usuario'], inplace=True)
             
-        html_table = usuarios_df.to_html(classes='tars-table', index=False)
-        st.markdown(html_table, unsafe_allow_html=True)
+        st.markdown(usuarios_df.to_html(classes='tars-table', index=False), unsafe_allow_html=True)
         
         st.divider()
         
-        col_acc, col_hist = st.columns([1, 1.2])
+        col_acc, col_perm, col_hist = st.columns([1, 1.2, 1])
         with col_acc:
-            st.markdown(f"<h4 style='color: {text_color} !important;'>🔐 Acciones de Seguridad</h4>", unsafe_allow_html=True)
-            id_accion = st.number_input("ID de Usuario a modificar", min_value=1, step=1)
-            accion_ejecutar = st.selectbox("Selecciona la Acción", ["APROBAR ACCESO", "RECHAZAR / BLOQUEAR", "ELIMINAR DEFINITIVAMENTE"])
+            st.markdown(f"<h4 style='color: {text_color} !important;'>🔐 Seguridad y Acceso</h4>", unsafe_allow_html=True)
             
-            st.markdown("<br>", unsafe_allow_html=True)
+            correo_accion = st.selectbox("Selecciona Usuario a modificar:", usuarios_df['correo'])
+            accion_ejecutar = st.selectbox("Acción a Ejecutar", ["APROBAR ACCESO", "RECHAZAR / BLOQUEAR", "ELIMINAR DEFINITIVAMENTE"])
+            
             st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
-            if st.button("Ejecutar Cambio en BD", use_container_width=True):
+            if st.button("Ejecutar Estado", use_container_width=True):
                 with engine.begin() as conn:
                     if accion_ejecutar == "ELIMINAR DEFINITIVAMENTE":
-                        conn.execute(text(f"DELETE FROM usuarios_tars WHERE id = {id_accion}"))
-                        msg_exito = f"Usuario ID {id_accion} eliminado permanentemente."
+                        conn.execute(text(f"DELETE FROM usuarios_tars WHERE correo = '{correo_accion}'"))
+                        msg_exito = "Usuario eliminado permanentemente."
                     elif accion_ejecutar == "RECHAZAR / BLOQUEAR":
-                        conn.execute(text(f"UPDATE usuarios_tars SET estado = 'RECHAZADO', aprobado = FALSE WHERE id = {id_accion}"))
-                        msg_exito = f"Usuario ID {id_accion} ha sido RECHAZADO."
+                        conn.execute(text(f"UPDATE usuarios_tars SET estado = 'RECHAZADO', aprobado = FALSE WHERE correo = '{correo_accion}'"))
+                        msg_exito = "Usuario bloqueado exitosamente."
                     else:
-                        conn.execute(text(f"UPDATE usuarios_tars SET estado = 'APROBADO', aprobado = TRUE WHERE id = {id_accion}"))
-                        msg_exito = f"Usuario ID {id_accion} ha sido APROBADO."
+                        conn.execute(text(f"UPDATE usuarios_tars SET estado = 'APROBADO', aprobado = TRUE WHERE correo = '{correo_accion}'"))
+                        msg_exito = "Usuario aprobado exitosamente."
                 st.success(msg_exito)
                 time.sleep(1)
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
+            st.markdown("<br><h5 style='color:gray;'>Restablecer Contraseña</h5>", unsafe_allow_html=True)
+            
+            st.info(f"🔑 Cambiando contraseña de: **{correo_accion}**")
+            
+            nueva_pass = st.text_input("Escribe la nueva contraseña", type="password")
+            if st.button("Cambiar Contraseña", use_container_width=True):
+                if nueva_pass:
+                    with engine.begin() as conn:
+                        conn.execute(text(f"UPDATE usuarios_tars SET password_hash = '{hash_password(nueva_pass)}' WHERE correo = '{correo_accion}'"))
+                    st.success("Contraseña actualizada exitosamente.")
+                else:
+                    st.warning("Escribe una contraseña válida.")
+
+        with col_perm:
+            st.markdown(f"<h4 style='color: {text_color} !important;'>🌍 Editar Permisos (Multi-Marca)</h4>", unsafe_allow_html=True)
+            st.info("Permite asignar varios países y marcas a un usuario a la vez.")
+            correo_permiso = st.selectbox("Usuario a Editar Permisos:", usuarios_df['correo'], key="c_perm")
+            
+            paises_todos = list(MARCAS_POR_PAIS.keys())
+            nuevos_paises = st.multiselect("Agregar Países Permitidos:", paises_todos)
+            
+            marcas_todas = []
+            for p in nuevos_paises:
+                marcas_todas.extend(MARCAS_POR_PAIS[p])
+            
+            nuevos_marcas = st.multiselect("Agregar Marcas Permitidas:", list(set(marcas_todas)))
+            
+            st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
+            if st.button("Actualizar Permisos Globales", use_container_width=True):
+                if nuevos_paises and nuevos_marcas:
+                    str_p = "|".join(nuevos_paises)
+                    str_m = "|".join(nuevos_marcas)
+                    with engine.begin() as conn:
+                        conn.execute(text(f"UPDATE usuarios_tars SET pais = '{str_p}', marca = '{str_m}' WHERE correo = '{correo_permiso}'"))
+                    st.success("Permisos globales actualizados.")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Selecciona al menos un país y una marca.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
         with col_hist:
-            st.markdown(f"<h4 style='color: {text_color} !important;'>🕵️‍♂️ Auditoría de Historial</h4>", unsafe_allow_html=True)
-            lista_correos = [""] + list(usuarios_df['correo'])
-            usuario_auditar = st.selectbox("Selecciona el correo del usuario para auditar sus chats:", lista_correos)
+            st.markdown(f"<h4 style='color: {text_color} !important;'>🕵️‍♂️ Auditoría de Chats</h4>", unsafe_allow_html=True)
+            usuario_auditar = st.selectbox("Usuario a auditar:", [""] + list(usuarios_df['correo']), key="aud_u")
             
             if usuario_auditar:
                 with engine.connect() as conn:
                     historial_lista = pd.read_sql(f"SELECT DISTINCT chat_id, titulo_chat, MIN(fecha) as fecha FROM historial_chat WHERE correo_usuario = '{usuario_auditar}' GROUP BY chat_id, titulo_chat ORDER BY fecha DESC", conn)
                 
                 if not historial_lista.empty:
-                    chat_a_revisar = st.selectbox("Selecciona la consulta a leer:", historial_lista['titulo_chat'])
+                    chat_a_revisar = st.selectbox("Consulta a leer:", historial_lista['titulo_chat'])
                     if chat_a_revisar:
                         chat_id_auditoria = historial_lista[historial_lista['titulo_chat'] == chat_a_revisar]['chat_id'].iloc[0]
                         mensajes_auditoria = cargar_mensajes_chat(chat_id_auditoria)
@@ -580,22 +640,76 @@ else:
                                 else:
                                     st.markdown(f"**🤖 TARS:** {msg['content']}")
                 else:
-                    st.info("Este usuario no ha realizado consultas aún.")
+                    st.info("Sin consultas registradas.")
 
     else:
-        pais_para_kpis = st.session_state.user_info['pais']
-        marca_para_kpis = st.session_state.user_info['marca']
+        # --- LÓGICA DE INTERFAZ ELEGANTE Y NOMBRES PROFESIONALES ---
+        lista_paises_usuario = [p.strip() for p in st.session_state.user_info['pais'].split('|')]
+        lista_marcas_usuario = [m.strip() for m in st.session_state.user_info['marca'].split('|')]
         
-        if pais_para_kpis == "Global" or marca_para_kpis == "ACCESO TOTAL":
-            st.markdown(f"<h3 style='color: {text_color} !important; margin-bottom: 5px;'>🌐 Panel Directivo Global</h3>", unsafe_allow_html=True)
-            paises_kpi = ["TODOS (Global)"] + list(MARCAS_POR_PAIS.keys())
-            paises_kpi.remove("Global (Dueños)")
-            col_kpi1, col_kpi2 = st.columns([1, 3])
-            with col_kpi1:
-                pais_para_kpis = st.selectbox("Selecciona un País:", paises_kpi, label_visibility="collapsed")
+        st.markdown(f"<h3 style='color: {text_color} !important; margin-bottom: 5px;'>🌐 Panel Operativo</h3>", unsafe_allow_html=True)
+        
+        # Identificamos si es un usuario global para mostrarle los nombres "bonitos"
+        es_global = "Global (Dueños)" in lista_paises_usuario or "TODOS (Global)" in lista_paises_usuario
+        
+        if es_global:
+            paises_disponibles = ["Todos los Países"] + [p for p in MARCAS_POR_PAIS.keys() if p != "Global (Dueños)"]
+        else:
+            paises_disponibles = lista_paises_usuario
             
-        st.markdown(f"<h4 style='color:{accent_color} !important; margin-top: 10px;'>Resumen Operativo ({pais_para_kpis} | {marca_para_kpis})</h4>", unsafe_allow_html=True)
+        mostrar_dropdowns = len(paises_disponibles) > 1 or len(lista_marcas_usuario) > 1 or es_global
+        
+        if mostrar_dropdowns:
+            col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1, 2])
+            with col_kpi1:
+                pais_seleccionado = st.selectbox("Selecciona un País:", paises_disponibles, label_visibility="collapsed")
+                
+            with col_kpi2:
+                if pais_seleccionado == "Todos los Países":
+                    marcas_disponibles = ["Todas las Marcas"]
+                else:
+                    if es_global or "TODAS (Director)" in lista_marcas_usuario or "ACCESO TOTAL" in lista_marcas_usuario:
+                        marcas_disponibles = ["Todas las Marcas"] + [m for m in MARCAS_POR_PAIS.get(pais_seleccionado, []) if m not in ["TODAS (Director)", "TODAS", "ACCESO TOTAL"]]
+                    else:
+                        marcas_disponibles = [m for m in lista_marcas_usuario if m in MARCAS_POR_PAIS.get(pais_seleccionado, [])]
+                
+                # Para evitar que el menú se quede vacío si hay un cruce raro de permisos
+                if not marcas_disponibles: marcas_disponibles = ["Todas las Marcas"]
+                
+                marca_seleccionada = st.selectbox("Selecciona una Marca:", marcas_disponibles, label_visibility="collapsed")
+        else:
+            pais_seleccionado = paises_disponibles[0]
+            marca_seleccionada = lista_marcas_usuario[0]
+            
+        st.markdown(f"<h4 style='color:{accent_color} !important; margin-top: 10px;'>Resumen Operativo ({pais_seleccionado} | {marca_seleccionada})</h4>", unsafe_allow_html=True)
+        
+        # --- MENSAJE DE BIENVENIDA MÁGICO (SIN PANTALLA TENUE) ---
+        nombre_corto = st.session_state.user_info['usuario'].split(' ')[0]
+        carga_placeholder = st.empty()
+        
+        # Traducimos de vuelta los nombres bonitos para la consulta de base de datos
+        pais_para_kpis = "Global" if pais_seleccionado == "Todos los Países" else pais_seleccionado
+        marca_para_kpis = "TODAS" if marca_seleccionada == "Todas las Marcas" else marca_seleccionada
+        
+        with carga_placeholder.container():
+            st.markdown(f"""
+            <div style="padding: 15px; border-radius: 8px; background-color: rgba(49, 130, 206, 0.1); border: 1px solid #3182ce; margin-bottom: 20px;">
+                <h4 style="color: #3182ce !important; margin-top: 0; font-weight: 600;">👋 ¡Bienvenido de vuelta, {nombre_corto}!</h4>
+                <p style="margin-bottom: 8px; color: {text_color} !important;">Mientras AWS analiza tus métricas operativas, recuerda que puedes pedirme cosas como:</p>
+                <ul style="margin-bottom: 0; color: {text_color} !important;">
+                    <li>📊 <b>Gráficas:</b> <i>"Dibuja una gráfica de barras con el Top 5 de sucursales con mayor recuperación"</i></li>
+                    <li>📥 <b>Reportes:</b> <i>"Genera un Excel descargable con las rutas en atraso"</i></li>
+                    <li>📎 <b>Análisis:</b> <i>Sube un PDF en el chat y pregúntame sobre las reglas y políticas de la empresa.</i></li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        # Ejecutamos la consulta. La ruedita girará arriba a la derecha.
         kpis, kpi_error = obtener_kpis(pais_para_kpis, marca_para_kpis)
+        
+        # Borramos la bienvenida cuando terminan de cargar los números
+        carga_placeholder.empty()
+            
         if kpi_error: st.error(f"🚨 ERROR EN LA BASE DE DATOS: {kpi_error}")
             
         st.caption(f"📅 Snapshot Cartera: **{kpis['fecha_corte_cart']}** | 📅 Última Semana Cobranza: **{kpis['fecha_corte_cob']}** | 📅 Trámites Reales: **{kpis['fecha_corte_tram']}**")
@@ -626,7 +740,7 @@ else:
         with chat_placeholder:
             if not mensajes_db:
                 components.html(lottie_robot_hello(), height=290)
-                st.markdown(f"<h2 style='text-align:center; color:{text_color} !important; font-weight:600;'>¿En qué te puedo ayudar hoy, {st.session_state.user_info['usuario'].split(' ')[0]}?</h2>", unsafe_allow_html=True)
+                st.markdown(f"<h2 style='text-align:center; color:{text_color} !important; font-weight:600;'>¿En qué te puedo ayudar hoy, {nombre_corto}?</h2>", unsafe_allow_html=True)
                 
                 col_sug1, col_sug2, col_sug3 = st.columns(3)
                 with col_sug1: st.info("📊 **Análisis SQL y Mapas:**\n\nCruza datos, saca métricas 'a la fecha' o pídeme ubicar clientes en el mapa.")
@@ -651,7 +765,7 @@ else:
             st.markdown(f"<p style='font-size:0.85em; color:gray !important; margin-bottom:0;'>📎 <b>Formatos Soportados:</b> Puedes adjuntar PNG, JPG, Excel, PDF o CSV (Máx 5).</p>", unsafe_allow_html=True)
             archivos_subidos = st.file_uploader("Adjuntar archivos", accept_multiple_files=True, type=['png', 'jpg', 'jpeg', 'pdf', 'xlsx', 'csv'], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
             
-            if prompt := st.chat_input("Escribe tu solicitud analítica, pide 'el dato a la fecha' o genera un mapa..."):
+            if prompt := st.chat_input("Escribe tu solicitud analítica, pide 'el dato a la fecha' o genera un reporte en excel..."):
                 if len(mensajes_db) == 0:
                     st.session_state.titulo_chat_actual = prompt[:30] + "..."
                 
@@ -692,15 +806,13 @@ else:
                             components.html(lottie_thinking_cube(), height=90)
                         
                         try:
-                            contexto_seguridad = f"[REGLA]: País: '{st.session_state.user_info['pais']}', Marca: '{st.session_state.user_info['marca']}'. Modelo: {st.session_state.modelo_seleccionado}. Pregunta: {texto_prompt}"
+                            # Aseguramos de mandar los nombres exactos a la BD para que no falle la IA
+                            contexto_seguridad = f"[REGLA]: País: '{pais_para_kpis}', Marca: '{marca_para_kpis}'. Modelo: {st.session_state.modelo_seleccionado}. Pregunta: {texto_prompt}"
                             
                             palabras_negocio = ["manual", "política", "politica", "guía", "guia", "guía completa", "guia completa", "proceso", "requisito", "garantía", "garantia", "vale amigo", "présico", "presico", "regla", "documento"]
                             es_pregunta_negocio = any(palabra in prompt.lower() for palabra in palabras_negocio)
 
-                            # --- NUEVA LÓGICA DE SELECCIÓN DE AGENTE (AQUÍ ESTÁ EL PREDICTIVO) ---
-                            if "Oracle" in st.session_state.modelo_seleccionado and predictivo_disponible:
-                                respuesta = agente_predictivo.invoke({"input": contexto_seguridad})
-                            elif (es_pdf or es_pregunta_negocio) and pdf_disponible:
+                            if (es_pdf or es_pregunta_negocio) and pdf_disponible:
                                 respuesta = agente_pdf.invoke({"input": contexto_seguridad})
                             elif sql_disponible:
                                 respuesta = agente_tars.invoke({"input": contexto_seguridad})
