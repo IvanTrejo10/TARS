@@ -107,8 +107,7 @@
         const usuarioAutenticado = {
             correo: "jorge.trejo@bancaprepa.com",
             pais: "Global",
-            marca: "TODAS",
-            token: "token_seguro_12345" // Este token es el que se enviará a Streamlit
+            marca: "TODAS"
         };
 
         function toggleChat() {
@@ -140,40 +139,37 @@
 
             const chatBody = document.getElementById('chat-body');
             const loadingId = "loading-" + Date.now();
-            chatBody.innerHTML += `<div class="msg tars" id="${loadingId}" style="color: #38bdf8;">TARS analizando...</div>`;
+            chatBody.innerHTML += `<div class="msg tars" id="${loadingId}" style="color: #38bdf8;">TARS analizando base de datos...</div>`;
             chatBody.scrollTop = chatBody.scrollHeight;
 
-            try {
-                // Aquí el ERP (React/HTML) le habla a tu cerebro en Python (FastAPI)
-                const response = await fetch("http://localhost:8000/api/chat_widget", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        pregunta: texto,
-                        correo_usuario: usuarioAutenticado.correo,
-                        pais: usuarioAutenticado.pais,
-                        marca: usuarioAutenticado.marca,
-                        token_sesion: usuarioAutenticado.token
-                    })
-                });
-
-                const data = await response.json();
+            // SIMULAMOS EL COMPORTAMIENTO DE LA IA
+            setTimeout(() => {
                 document.getElementById(loadingId).remove();
-
-                let htmlRespuesta = data.respuesta.replace(/\n/g, '<br>');
                 
-                // 🚀 EL MOMENTO MÁGICO: Si TARS decide que es muy complejo, muestra el botón.
-                if (data.tipo === 'redireccion') {
-                    htmlRespuesta += `<br><a href="${data.link}" class="btn-tars-link" target="_blank">Abrir TARS Enterprise 🚀</a>`;
+                let htmlRespuesta = "";
+                let textoLower = texto.toLowerCase();
+                
+                // 1. Pregunta de Nicaragua
+                if(textoLower.includes("nicaragua") && textoLower.includes("corriente")) {
+                    htmlRespuesta = "Según los registros al último corte, <b>Nicaragua tiene 1,320 clientes al corriente.</b>";
+                } 
+                // 2. Pregunta de Recuperación
+                else if(textoLower.includes("recuperación") || textoLower.includes("recuperacion") || textoLower.includes("día de hoy") || textoLower.includes("dia de hoy")) {
+                    htmlRespuesta = "La recuperación total registrada para el día de hoy es de <b>$303,462.39</b>.";
+                }
+                // 3. Pregunta de Proyección / Tendencia o cualquier otra cosa compleja
+                else if(textoLower.includes("proyección") || textoLower.includes("proyeccion") || textoLower.includes("tendencia") || textoLower.includes("semanas")) {
+                    htmlRespuesta = "Para este tipo de análisis profundo, necesitas irte a OBSON TARS Enterprise.<br><br>";
+                    htmlRespuesta += `<button onclick="saltarATars()" class="btn-tars-link" style="border:none; cursor:pointer; width:100%;">Abrir TARS Enterprise 🚀</button>`;
+                }
+                // Respuesta por defecto por si preguntas otra cosa
+                else {
+                    htmlRespuesta = "Para esa consulta requiero acceder al motor completo.<br><br>";
+                    htmlRespuesta += `<button onclick="saltarATars()" class="btn-tars-link" style="border:none; cursor:pointer; width:100%;">Abrir TARS Enterprise 🚀</button>`;
                 }
 
                 agregarMensajeHTML(htmlRespuesta, 'tars');
-
-            } catch (error) {
-                console.error("Error:", error);
-                document.getElementById(loadingId).remove();
-                agregarMensaje("❌ Error de conexión. ¿Encendiste api_tars.py en el puerto 8000?", 'tars');
-            }
+            }, 1200); 
         }
 
         function agregarMensaje(texto, rol) {
@@ -186,6 +182,16 @@
             const chatBody = document.getElementById('chat-body');
             chatBody.innerHTML += `<div class="msg ${rol}">${html}</div>`;
             chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        // Esta es la función mágica que conecta el HTML con tu Python
+        function saltarATars() {
+            const botones = window.parent.document.querySelectorAll('button');
+            botones.forEach(btn => {
+                if(btn.innerText.includes('Finalizar Simulación')) {
+                    btn.click();
+                }
+            });
         }
     </script>
 </body>
