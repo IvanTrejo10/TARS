@@ -485,21 +485,25 @@ else:
     # ====================================================================
     # 🚧 FASE 1: SIMULADOR OPERATIVO (Bloquea TARS hasta ser completado)
     # ====================================================================
+# ====================================================================
+    # 🚧 FASE 1: SIMULADOR OPERATIVO (Muestra tu HTML del ERP)
+    # ====================================================================
     if not st.session_state.simulador_completado and not es_admin:
-        st.markdown(f"<h2 style='text-align:center; color:{text_color} !important; font-weight:800; font-size: 3rem; margin-top: 50px;'>🚀 Simulador Operativo</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:gray; font-size: 1.2rem; margin-bottom: 40px;'>Bienvenido a la fase de simulación. Completa tus procesos operativos antes de avanzar.</p>", unsafe_allow_html=True)
         
-        with st.container():
-            st.info("💡 ESPACIO PARA TU CÓDIGO: Agrega aquí todos los inputs, lógicas y gráficas de tu nuevo proyecto simulador.")
-            # -----------------------------------------------------------
-            # --- AQUÍ EMPIEZA TU CÓDIGO DEL SIMULADOR ---
+        # Leemos tu archivo HTML personalizado
+        try:
+            with open("simulador_erp.html", "r", encoding="utf-8") as f:
+                html_erp = f.read()
             
-            st.write("*(Renderizando entorno de simulación...)*")
+            # Renderizamos el HTML ocupando toda la pantalla (alto de 800px)
+            components.html(html_erp, height=850, scrolling=True)
             
-            # --- AQUÍ TERMINA TU CÓDIGO DEL SIMULADOR ---
-            # -----------------------------------------------------------
-            
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error al cargar el simulador: {e}")
+            st.info("Asegúrate de que 'simulador_erp.html' esté en la misma carpeta que Pagina_Web.py")
+        
+        # Botón maestro de Streamlit para saltar de tu ERP a TARS
+        st.divider()
         col_s1, col_s2, col_s3 = st.columns([1,2,1])
         with col_s2:
             st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
@@ -507,10 +511,7 @@ else:
                 st.session_state.simulador_completado = True
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.divider()
-        col_logout1, col_logout2, col_logout3 = st.columns([2,1,2])
-        with col_logout2:
+            
             if st.button("🚪 Cerrar Sesión", key="logout_simulador", use_container_width=True):
                 st.session_state.logged_in = False
                 st.rerun()
