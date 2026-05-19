@@ -19,7 +19,7 @@ except ImportError:
     pass
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="TARS | Enterprise Intelligence", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="OBSON | Enterprise Intelligence", layout="wide", initial_sidebar_state="expanded")
 
 # --- CONEXIÓN A BASE DE DATOS Y SEGURIDAD (AWS RDS) ---
 load_dotenv()
@@ -107,7 +107,6 @@ def borrar_chat_especifico(chat_id):
 # ====================================================================
 # 🚀 MOTOR DE KPIs MEJORADO (CACHÉ GLOBAL DE 1 HORA CON INDICADOR NATIVO)
 # ====================================================================
-# NOTA: Al no poner 'show_spinner=False', Streamlit mostrará su circulito pequeño arriba a la derecha
 @st.cache_data(ttl=3600)
 def obtener_kpis(pais_filtro, marca_filtro):
     filtro_pais = "1=1"
@@ -277,6 +276,28 @@ if "chat_id_actual" not in st.session_state: st.session_state.chat_id_actual = s
 if "titulo_chat_actual" not in st.session_state: st.session_state.titulo_chat_actual = "Nueva Consulta"
 if "modelo_seleccionado" not in st.session_state: st.session_state.modelo_seleccionado = "GPT-4o (Máxima Inteligencia)"
 if "uploader_key" not in st.session_state: st.session_state.uploader_key = 0
+if "simulador_completado" not in st.session_state: st.session_state.simulador_completado = False
+
+# ====================================================================
+# 🛡️ INYECCIÓN DE SINGLE SIGN-ON (SSO) DESDE EL ERP
+# ====================================================================
+if "token" in st.query_params:
+    token_erp = st.query_params["token"]
+    
+    # Validamos acceso directo simulando los datos que vendrían del token JWT del ERP
+    st.session_state.logged_in = True
+    st.session_state.correo_actual = "usuario.erp@caprepa.com" 
+    st.session_state.user_info = {
+        "usuario": "Iván Trejo", 
+        "pais": "Global", 
+        "marca": "TODAS", 
+        "rol": "USER"
+    }
+    
+    # Limpiamos la URL para que no se vea el token y recargamos para mostrar el Dashboard
+    st.query_params.clear()
+    st.rerun()
+# ====================================================================
 
 # --- DISEÑO DINÁMICO EXTREMO ---
 if st.session_state.theme == "dark":
@@ -390,83 +411,6 @@ sql_disponible = True if agente_tars else False
 pdf_disponible = True if agente_pdf else False
 
 
-if st.session_state.logged_in:
-    with st.sidebar:
-        st.markdown("<div class='menu-letters'>MENÚ</div><div class='menu-line'></div>", unsafe_allow_html=True)
-        
-        st.markdown(f"<div class='btn-primary'>", unsafe_allow_html=True)
-        if st.button("➕ NUEVO CHAT", use_container_width=True):
-            st.session_state.chat_id_actual = str(uuid.uuid4())
-            st.session_state.titulo_chat_actual = "Nueva Consulta"
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.divider()
-        
-        st.markdown(f"<p style='color:{text_color} !important; font-weight:600; margin-bottom:5px;'>⚙️ Motor de Procesamiento</p>", unsafe_allow_html=True)
-        st.markdown("<div class='radio-modelos'>", unsafe_allow_html=True)
-        st.session_state.modelo_seleccionado = st.radio(
-            label="Selecciona la IA:",
-            options=["GPT-4o (Máxima Inteligencia)", "GPT-4o-mini (Súper Rápido)"],
-            label_visibility="collapsed"
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.divider()
-        
-        st.markdown(f"<p style='color:gray !important; font-size:0.8em; font-weight:600; margin-bottom:5px;'>TU HISTORIAL</p>", unsafe_allow_html=True)
-        lista_chats = obtener_lista_chats(st.session_state.correo_actual)
-        if not lista_chats:
-            st.markdown(f"<p style='color:gray !important; font-size:0.8em;'>No hay chats recientes.</p>", unsafe_allow_html=True)
-        else:
-            for chat in lista_chats[:15]:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    prefijo = "🟢 " if chat['chat_id'] == st.session_state.chat_id_actual else "💬 "
-                    if st.button(f"{prefijo}{chat['titulo'][:15]}...", key=f"load_{chat['chat_id']}", use_container_width=True):
-                        st.session_state.chat_id_actual = chat['chat_id']
-                        st.session_state.titulo_chat_actual = chat['titulo']
-                        st.rerun()
-                with col2:
-                    if st.button("🗑️", key=f"del_{chat['chat_id']}"):
-                        st.session_state[f"confirm_del_{chat['chat_id']}"] = True
-
-                # CONFIRMACIÓN DE BORRADO SEGURO
-                if st.session_state.get(f"confirm_del_{chat['chat_id']}", False):
-                    st.warning("¿Seguro que deseas borrarlo?")
-                    cx, cy = st.columns(2)
-                    st.markdown("<div class='btn-danger'>", unsafe_allow_html=True)
-                    if cx.button("Sí", key=f"y_{chat['chat_id']}", use_container_width=True):
-                        borrar_chat_especifico(chat['chat_id'])
-                        if st.session_state.chat_id_actual == chat['chat_id']:
-                            st.session_state.chat_id_actual = str(uuid.uuid4())
-                            st.session_state.titulo_chat_actual = "Nueva Consulta"
-                        del st.session_state[f"confirm_del_{chat['chat_id']}"]
-                        st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
-                    if cy.button("No", key=f"n_{chat['chat_id']}", use_container_width=True):
-                        del st.session_state[f"confirm_del_{chat['chat_id']}"]
-                        st.rerun()
-
-        st.divider()
-        
-        st.markdown(f"<p style='color:gray !important; font-size:0.8em; font-weight:600; margin-bottom:5px;'>AYUDA Y SOPORTE</p>", unsafe_allow_html=True)
-        st.info("Por favor acudir a **PLANEACIÓN Y ANÁLISIS DE DATOS**.\n\n📧 **Contacto:**\n- data.analitycs@caprepa.com\n- data.analitycs.1@caprepa.com")
-        
-        st.divider()
-        
-        st.markdown(f"""<div style='padding:10px; background-color:{bg_color}; border-radius:8px; border:1px solid {border_color}; margin-bottom:10px;'><p style='margin:0; font-size:0.7em; color:gray !important;'>PERFIL ACTIVO</p><p style='margin:0; font-weight:600; font-size:0.9em; color:{text_color} !important;'>{st.session_state.user_info['usuario']}</p></div>""", unsafe_allow_html=True)
-        
-        components.html(lottie_theme_interactive(), height=125)
-            
-        if st.button("🚪 Cerrar Sesión", use_container_width=True):
-            st.session_state.logged_in = False
-            st.rerun()
-
-        if st.button("HIDDEN_THEME_BTN"):
-            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
-            st.rerun()
-
 if not st.session_state.logged_in:
     col_espacio, col_form, col_espacio2 = st.columns([1, 1.2, 1])
     with col_form:
@@ -477,7 +421,7 @@ if not st.session_state.logged_in:
         </div>
         """, height=260)
 
-        st.markdown("<div class='tars-title'>TARS</div><p style='text-align:center; color:gray !important; font-size:1.1rem; letter-spacing:3px; margin-bottom:30px;'>ENTERPRISE INTELLIGENCE</p>", unsafe_allow_html=True)
+        st.markdown("<div class='tars-title'>OBSON</div><p style='text-align:center; color:gray !important; font-size:1.1rem; letter-spacing:3px; margin-bottom:30px;'>ENTERPRISE INTELLIGENCE</p>", unsafe_allow_html=True)
         tab_login, tab_registro = st.tabs(["Autenticación", "Solicitar Acceso"])
         
         with tab_login:
@@ -536,306 +480,428 @@ if not st.session_state.logged_in:
             st.markdown("</div>", unsafe_allow_html=True)
 
 else:
-    if st.session_state.user_info["rol"] == "ADMIN":
-        st.markdown(f"<h2 style='color: {text_color} !important;'>🛡️ Panel de Control Global</h2>", unsafe_allow_html=True)
+    es_admin = st.session_state.user_info.get("rol") == "ADMIN"
+    
+    # ====================================================================
+    # 🚧 FASE 1: SIMULADOR OPERATIVO (Bloquea TARS hasta ser completado)
+    # ====================================================================
+    if not st.session_state.simulador_completado and not es_admin:
+        st.markdown(f"<h2 style='text-align:center; color:{text_color} !important; font-weight:800; font-size: 3rem; margin-top: 50px;'>🚀 Simulador Operativo</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:gray; font-size: 1.2rem; margin-bottom: 40px;'>Bienvenido a la fase de simulación. Completa tus procesos operativos antes de avanzar.</p>", unsafe_allow_html=True)
         
-        with engine.connect() as conn:
-            usuarios_df = pd.read_sql("SELECT id, correo, usuario, pais, marca, rol, estado FROM usuarios_tars ORDER BY id ASC", conn)
-            chats_count = pd.read_sql("SELECT correo_usuario, COUNT(DISTINCT chat_id) as total_chats FROM historial_chat GROUP BY correo_usuario", conn)
+        with st.container():
+            st.info("💡 ESPACIO PARA TU CÓDIGO: Agrega aquí todos los inputs, lógicas y gráficas de tu nuevo proyecto simulador.")
+            # -----------------------------------------------------------
+            # --- AQUÍ EMPIEZA TU CÓDIGO DEL SIMULADOR ---
             
-        usuarios_df = pd.merge(usuarios_df, chats_count, left_on="correo", right_on="correo_usuario", how="left")
-        usuarios_df['total_chats'] = usuarios_df['total_chats'].fillna(0).astype(int)
-        
-        usuarios_df = usuarios_df.drop_duplicates(subset=['correo'])
-        if 'correo_usuario' in usuarios_df.columns:
-            usuarios_df.drop(columns=['correo_usuario'], inplace=True)
+            st.write("*(Renderizando entorno de simulación...)*")
             
-        st.markdown(usuarios_df.to_html(classes='tars-table', index=False), unsafe_allow_html=True)
-        
-        st.divider()
-        
-        col_acc, col_perm, col_hist = st.columns([1, 1.2, 1])
-        with col_acc:
-            st.markdown(f"<h4 style='color: {text_color} !important;'>🔐 Seguridad y Acceso</h4>", unsafe_allow_html=True)
+            # --- AQUÍ TERMINA TU CÓDIGO DEL SIMULADOR ---
+            # -----------------------------------------------------------
             
-            correo_accion = st.selectbox("Selecciona Usuario a modificar:", usuarios_df['correo'])
-            accion_ejecutar = st.selectbox("Acción a Ejecutar", ["APROBAR ACCESO", "RECHAZAR / BLOQUEAR", "ELIMINAR DEFINITIVAMENTE"])
-            
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        col_s1, col_s2, col_s3 = st.columns([1,2,1])
+        with col_s2:
             st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
-            if st.button("Ejecutar Estado", use_container_width=True):
-                with engine.begin() as conn:
-                    if accion_ejecutar == "ELIMINAR DEFINITIVAMENTE":
-                        conn.execute(text(f"DELETE FROM usuarios_tars WHERE correo = '{correo_accion}'"))
-                        msg_exito = "Usuario eliminado permanentemente."
-                    elif accion_ejecutar == "RECHAZAR / BLOQUEAR":
-                        conn.execute(text(f"UPDATE usuarios_tars SET estado = 'RECHAZADO', aprobado = FALSE WHERE correo = '{correo_accion}'"))
-                        msg_exito = "Usuario bloqueado exitosamente."
-                    else:
-                        conn.execute(text(f"UPDATE usuarios_tars SET estado = 'APROBADO', aprobado = TRUE WHERE correo = '{correo_accion}'"))
-                        msg_exito = "Usuario aprobado exitosamente."
-                st.success(msg_exito)
-                time.sleep(1)
+            if st.button("Finalizar Simulación e Ingresar a TARS Platform", use_container_width=True):
+                st.session_state.simulador_completado = True
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.divider()
+        col_logout1, col_logout2, col_logout3 = st.columns([2,1,2])
+        with col_logout2:
+            if st.button("🚪 Cerrar Sesión", key="logout_simulador", use_container_width=True):
+                st.session_state.logged_in = False
+                st.rerun()
 
-            st.markdown("<br><h5 style='color:gray;'>Restablecer Contraseña</h5>", unsafe_allow_html=True)
+    # ====================================================================
+    # ⚙️ FASE 2: PLATAFORMA TARS E IA (Se muestra solo si pasó el simulador)
+    # ====================================================================
+    else:
+        with st.sidebar:
+            st.markdown("<div class='menu-letters'>MENÚ</div><div class='menu-line'></div>", unsafe_allow_html=True)
             
-            st.info(f"🔑 Cambiando contraseña de: **{correo_accion}**")
+            st.markdown(f"<div class='btn-primary'>", unsafe_allow_html=True)
+            if st.button("➕ NUEVO CHAT", use_container_width=True):
+                st.session_state.chat_id_actual = str(uuid.uuid4())
+                st.session_state.titulo_chat_actual = "Nueva Consulta"
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
             
-            nueva_pass = st.text_input("Escribe la nueva contraseña", type="password")
-            if st.button("Cambiar Contraseña", use_container_width=True):
-                if nueva_pass:
-                    with engine.begin() as conn:
-                        conn.execute(text(f"UPDATE usuarios_tars SET password_hash = '{hash_password(nueva_pass)}' WHERE correo = '{correo_accion}'"))
-                    st.success("Contraseña actualizada exitosamente.")
-                else:
-                    st.warning("Escribe una contraseña válida.")
-
-        with col_perm:
-            st.markdown(f"<h4 style='color: {text_color} !important;'>🌍 Editar Permisos (Multi-Marca)</h4>", unsafe_allow_html=True)
-            st.info("Permite asignar varios países y marcas a un usuario a la vez.")
-            correo_permiso = st.selectbox("Usuario a Editar Permisos:", usuarios_df['correo'], key="c_perm")
+            st.divider()
             
-            paises_todos = list(MARCAS_POR_PAIS.keys())
-            nuevos_paises = st.multiselect("Agregar Países Permitidos:", paises_todos)
-            
-            marcas_todas = []
-            for p in nuevos_paises:
-                marcas_todas.extend(MARCAS_POR_PAIS[p])
-            
-            nuevos_marcas = st.multiselect("Agregar Marcas Permitidas:", list(set(marcas_todas)))
-            
-            st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
-            if st.button("Actualizar Permisos Globales", use_container_width=True):
-                if nuevos_paises and nuevos_marcas:
-                    str_p = "|".join(nuevos_paises)
-                    str_m = "|".join(nuevos_marcas)
-                    with engine.begin() as conn:
-                        conn.execute(text(f"UPDATE usuarios_tars SET pais = '{str_p}', marca = '{str_m}' WHERE correo = '{correo_permiso}'"))
-                    st.success("Permisos globales actualizados.")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.warning("Selecciona al menos un país y una marca.")
+            st.markdown(f"<p style='color:{text_color} !important; font-weight:600; margin-bottom:5px;'>⚙️ Motor de Procesamiento</p>", unsafe_allow_html=True)
+            st.markdown("<div class='radio-modelos'>", unsafe_allow_html=True)
+            st.session_state.modelo_seleccionado = st.radio(
+                label="Selecciona la IA:",
+                options=["GPT-4o (Máxima Inteligencia)", "GPT-4o-mini (Súper Rápido)"],
+                label_visibility="collapsed"
+            )
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with col_hist:
-            st.markdown(f"<h4 style='color: {text_color} !important;'>🕵️‍♂️ Auditoría de Chats</h4>", unsafe_allow_html=True)
-            usuario_auditar = st.selectbox("Usuario a auditar:", [""] + list(usuarios_df['correo']), key="aud_u")
+            st.divider()
             
-            if usuario_auditar:
-                with engine.connect() as conn:
-                    historial_lista = pd.read_sql(f"SELECT DISTINCT chat_id, titulo_chat, MIN(fecha) as fecha FROM historial_chat WHERE correo_usuario = '{usuario_auditar}' GROUP BY chat_id, titulo_chat ORDER BY fecha DESC", conn)
-                
-                if not historial_lista.empty:
-                    chat_a_revisar = st.selectbox("Consulta a leer:", historial_lista['titulo_chat'])
-                    if chat_a_revisar:
-                        chat_id_auditoria = historial_lista[historial_lista['titulo_chat'] == chat_a_revisar]['chat_id'].iloc[0]
-                        mensajes_auditoria = cargar_mensajes_chat(chat_id_auditoria)
-                        
-                        with st.container(height=300):
-                            for msg in mensajes_auditoria:
-                                if msg['role'] == 'user':
-                                    st.markdown(f"**👤 USUARIO:** {msg['content']}")
-                                else:
-                                    st.markdown(f"**🤖 TARS:** {msg['content']}")
-                else:
-                    st.info("Sin consultas registradas.")
-
-    else:
-        # --- LÓGICA DE INTERFAZ ELEGANTE Y NOMBRES PROFESIONALES ---
-        lista_paises_usuario = [p.strip() for p in st.session_state.user_info['pais'].split('|')]
-        lista_marcas_usuario = [m.strip() for m in st.session_state.user_info['marca'].split('|')]
-        
-        st.markdown(f"<h3 style='color: {text_color} !important; margin-bottom: 5px;'>🌐 Panel Operativo</h3>", unsafe_allow_html=True)
-        
-        # Identificamos si es un usuario global para mostrarle los nombres "bonitos"
-        es_global = "Global (Dueños)" in lista_paises_usuario or "TODOS (Global)" in lista_paises_usuario
-        
-        if es_global:
-            paises_disponibles = ["Todos los Países"] + [p for p in MARCAS_POR_PAIS.keys() if p != "Global (Dueños)"]
-        else:
-            paises_disponibles = lista_paises_usuario
-            
-        mostrar_dropdowns = len(paises_disponibles) > 1 or len(lista_marcas_usuario) > 1 or es_global
-        
-        if mostrar_dropdowns:
-            col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1, 2])
-            with col_kpi1:
-                pais_seleccionado = st.selectbox("Selecciona un País:", paises_disponibles, label_visibility="collapsed")
-                
-            with col_kpi2:
-                if pais_seleccionado == "Todos los Países":
-                    marcas_disponibles = ["Todas las Marcas"]
-                else:
-                    if es_global or "TODAS (Director)" in lista_marcas_usuario or "ACCESO TOTAL" in lista_marcas_usuario:
-                        marcas_disponibles = ["Todas las Marcas"] + [m for m in MARCAS_POR_PAIS.get(pais_seleccionado, []) if m not in ["TODAS (Director)", "TODAS", "ACCESO TOTAL"]]
-                    else:
-                        marcas_disponibles = [m for m in lista_marcas_usuario if m in MARCAS_POR_PAIS.get(pais_seleccionado, [])]
-                
-                # Para evitar que el menú se quede vacío si hay un cruce raro de permisos
-                if not marcas_disponibles: marcas_disponibles = ["Todas las Marcas"]
-                
-                marca_seleccionada = st.selectbox("Selecciona una Marca:", marcas_disponibles, label_visibility="collapsed")
-        else:
-            pais_seleccionado = paises_disponibles[0]
-            marca_seleccionada = lista_marcas_usuario[0]
-            
-        st.markdown(f"<h4 style='color:{accent_color} !important; margin-top: 10px;'>Resumen Operativo ({pais_seleccionado} | {marca_seleccionada})</h4>", unsafe_allow_html=True)
-        
-        # --- MENSAJE DE BIENVENIDA MÁGICO (SIN PANTALLA TENUE) ---
-        nombre_corto = st.session_state.user_info['usuario'].split(' ')[0]
-        carga_placeholder = st.empty()
-        
-        # Traducimos de vuelta los nombres bonitos para la consulta de base de datos
-        pais_para_kpis = "Global" if pais_seleccionado == "Todos los Países" else pais_seleccionado
-        marca_para_kpis = "TODAS" if marca_seleccionada == "Todas las Marcas" else marca_seleccionada
-        
-        with carga_placeholder.container():
-            st.markdown(f"""
-            <div style="padding: 15px; border-radius: 8px; background-color: rgba(49, 130, 206, 0.1); border: 1px solid #3182ce; margin-bottom: 20px;">
-                <h4 style="color: #3182ce !important; margin-top: 0; font-weight: 600;">👋 ¡Bienvenido de vuelta, {nombre_corto}!</h4>
-                <p style="margin-bottom: 8px; color: {text_color} !important;">Mientras AWS analiza tus métricas operativas, recuerda que puedes pedirme cosas como:</p>
-                <ul style="margin-bottom: 0; color: {text_color} !important;">
-                    <li>📊 <b>Gráficas:</b> <i>"Dibuja una gráfica de barras con el Top 5 de sucursales con mayor recuperación"</i></li>
-                    <li>📥 <b>Reportes:</b> <i>"Genera un Excel descargable con las rutas en atraso"</i></li>
-                    <li>📎 <b>Análisis:</b> <i>Sube un PDF en el chat y pregúntame sobre las reglas y políticas de la empresa.</i></li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        # Ejecutamos la consulta. La ruedita girará arriba a la derecha.
-        kpis, kpi_error = obtener_kpis(pais_para_kpis, marca_para_kpis)
-        
-        # Borramos la bienvenida cuando terminan de cargar los números
-        carga_placeholder.empty()
-            
-        if kpi_error: st.error(f"🚨 ERROR EN LA BASE DE DATOS: {kpi_error}")
-            
-        st.caption(f"📅 Snapshot Cartera: **{kpis['fecha_corte_cart']}** | 📅 Última Semana Cobranza: **{kpis['fecha_corte_cob']}** | 📅 Trámites Reales: **{kpis['fecha_corte_tram']}**")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric(label="Rutas", value=kpis['rutas'])
-            st.metric(label="Cartera Total", value=kpis['cartera'])
-            st.metric(label="Cuota Cobranza", value=kpis['cuota_cobranza'])
-        with col2:
-            st.metric(label="Clientes Totales", value=kpis['clientes_totales'])
-            st.metric(label="Cartera Corriente", value=kpis['cartera_corriente'])
-            st.metric(label="Recuperación", value=kpis['recuperacion'])
-        with col3:
-            st.metric(label="Clientes al Corriente", value=kpis['clientes_corriente'])
-            st.metric(label="Cartera en Atraso", value=kpis['cartera_atraso'])
-            st.metric(label="Trámites Reales", value=kpis['tramites'])
-        with col4:
-            st.metric(label="% IP (Al corriente)", value=kpis['ip'])
-            st.metric(label="Faltas", value=kpis['faltas'])
-            st.metric(label="Monto Entregado", value=kpis['monto_entregado'])
-
-        st.divider()
-
-        chat_placeholder = st.container()
-        mensajes_db = cargar_mensajes_chat(st.session_state.chat_id_actual)
-        
-        with chat_placeholder:
-            if not mensajes_db:
-                components.html(lottie_robot_hello(), height=290)
-                st.markdown(f"<h2 style='text-align:center; color:{text_color} !important; font-weight:600;'>¿En qué te puedo ayudar hoy, {nombre_corto}?</h2>", unsafe_allow_html=True)
-                
-                col_sug1, col_sug2, col_sug3 = st.columns(3)
-                with col_sug1: st.info("📊 **Análisis SQL y Mapas:**\n\nCruza datos, saca métricas 'a la fecha' o pídeme ubicar clientes en el mapa.")
-                with col_sug2: st.info("📎 **Documentos:**\n\nSube imágenes, Excel o PDF abajo para análisis profundo.")
-                with col_sug3: st.info("🧠 **Políticas:**\n\nPregúntame sobre la Guía Completa, manuales y requisitos.")
-                st.markdown("<br><br>", unsafe_allow_html=True)
-                
-            for msg in mensajes_db:
-                with st.chat_message(msg["role"]): 
-                    if "```python" in msg["content"] and "st." in msg["content"]:
-                        partes = msg["content"].split("```python")
-                        st.markdown(partes[0])
-                        codigo_py = partes[1].split("```")[0].strip()
-                        try:
-                            exec(codigo_py)
-                        except Exception as e:
-                            st.warning(f"No se pudo renderizar visualización interactiva: {e}")
-                    else:
-                        st.markdown(msg["content"])
-
-        with st.container():
-            st.markdown(f"<p style='font-size:0.85em; color:gray !important; margin-bottom:0;'>📎 <b>Formatos Soportados:</b> Puedes adjuntar PNG, JPG, Excel, PDF o CSV (Máx 5).</p>", unsafe_allow_html=True)
-            archivos_subidos = st.file_uploader("Adjuntar archivos", accept_multiple_files=True, type=['png', 'jpg', 'jpeg', 'pdf', 'xlsx', 'csv'], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
-            
-            if prompt := st.chat_input("Escribe tu solicitud analítica, pide 'el dato a la fecha' o genera un reporte en excel..."):
-                if len(mensajes_db) == 0:
-                    st.session_state.titulo_chat_actual = prompt[:30] + "..."
-                
-                st.session_state.uploader_key += 1
-                texto_prompt = prompt
-                es_pdf = False
-                
-                if archivos_subidos:
-                    texto_prompt += "\n\n[El usuario adjuntó los siguientes archivos:]"
-                    for archivo in archivos_subidos:
-                        if archivo.name.endswith('.pdf'):
-                            es_pdf = True
-                            texto_prompt += f"\n\n--- Documento PDF: {archivo.name} ---"
-                            try:
-                                reader = PdfReader(archivo)
-                                texto_extraido = "".join([page.extract_text() for page in reader.pages if page.extract_text()])
-                                texto_prompt += f"\n[CONTENIDO DEL PDF]:\n{texto_extraido[:4000]}\n---"
-                            except Exception as e:
-                                texto_prompt += f"\n[Error al leer PDF: {e}]"
-                        elif archivo.name.endswith('.csv'):
-                            try:
-                                df_temp = pd.read_csv(archivo)
-                                texto_prompt += f"\n\n--- Archivo: {archivo.name} ---\n{df_temp.head(10).to_string()}"
-                            except: pass
-                        elif archivo.name.endswith('.xlsx'):
-                            try:
-                                df_temp = pd.read_excel(archivo)
-                                texto_prompt += f"\n\n--- Archivo: {archivo.name} ---\n{df_temp.head(10).to_string()}"
-                            except: pass
-
-                guardar_mensaje(st.session_state.correo_actual, st.session_state.chat_id_actual, st.session_state.titulo_chat_actual, "user", texto_prompt)
-                
-                with chat_placeholder:
-                    with st.chat_message("user"): st.markdown(prompt)
-                    with st.chat_message("assistant"):
-                        placeholder_anim = st.empty()
-                        with placeholder_anim:
-                            components.html(lottie_thinking_cube(), height=90)
-                        
-                        try:
-                            # Aseguramos de mandar los nombres exactos a la BD para que no falle la IA
-                            contexto_seguridad = f"[REGLA]: País: '{pais_para_kpis}', Marca: '{marca_para_kpis}'. Modelo: {st.session_state.modelo_seleccionado}. Pregunta: {texto_prompt}"
-                            
-                            palabras_negocio = ["manual", "política", "politica", "guía", "guia", "guía completa", "guia completa", "proceso", "requisito", "garantía", "garantia", "vale amigo", "présico", "presico", "regla", "documento"]
-                            es_pregunta_negocio = any(palabra in prompt.lower() for palabra in palabras_negocio)
-
-                            if (es_pdf or es_pregunta_negocio) and pdf_disponible:
-                                respuesta = agente_pdf.invoke({"input": contexto_seguridad})
-                            elif sql_disponible:
-                                respuesta = agente_tars.invoke({"input": contexto_seguridad})
-                            else:
-                                respuesta = {'output': f"⚠️ El Agente SQL está fuera de línea.\n\n**Diagnóstico:** {error_agente}"}
-
-                            placeholder_anim.empty()
-                            guardar_mensaje(st.session_state.correo_actual, st.session_state.chat_id_actual, st.session_state.titulo_chat_actual, "assistant", respuesta['output'])
-                            
-                            if "```python" in respuesta['output'] and "st." in respuesta['output']:
-                                partes = respuesta['output'].split("```python")
-                                st.markdown(partes[0])
-                                codigo_py = partes[1].split("```")[0].strip()
-                                try:
-                                    exec(codigo_py)
-                                except Exception as e:
-                                    st.warning(f"No se pudo renderizar visualización interactiva: {e}")
-                            else:
-                                st.markdown(respuesta['output'])
-                                
-                            time.sleep(0.1)
+            st.markdown(f"<p style='color:gray !important; font-size:0.8em; font-weight:600; margin-bottom:5px;'>TU HISTORIAL</p>", unsafe_allow_html=True)
+            lista_chats = obtener_lista_chats(st.session_state.correo_actual)
+            if not lista_chats:
+                st.markdown(f"<p style='color:gray !important; font-size:0.8em;'>No hay chats recientes.</p>", unsafe_allow_html=True)
+            else:
+                for chat in lista_chats[:15]:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        prefijo = "🟢 " if chat['chat_id'] == st.session_state.chat_id_actual else "💬 "
+                        if st.button(f"{prefijo}{chat['titulo'][:15]}...", key=f"load_{chat['chat_id']}", use_container_width=True):
+                            st.session_state.chat_id_actual = chat['chat_id']
+                            st.session_state.titulo_chat_actual = chat['titulo']
                             st.rerun()
-                        except Exception as e:
-                            placeholder_anim.empty()
-                            st.error(f"Error en el procesamiento: {e}")
-                            guardar_mensaje(st.session_state.correo_actual, st.session_state.chat_id_actual, st.session_state.titulo_chat_actual, "assistant", str(e))
+                    with col2:
+                        if st.button("🗑️", key=f"del_{chat['chat_id']}"):
+                            st.session_state[f"confirm_del_{chat['chat_id']}"] = True
+
+                    # CONFIRMACIÓN DE BORRADO SEGURO
+                    if st.session_state.get(f"confirm_del_{chat['chat_id']}", False):
+                        st.warning("¿Seguro que deseas borrarlo?")
+                        cx, cy = st.columns(2)
+                        st.markdown("<div class='btn-danger'>", unsafe_allow_html=True)
+                        if cx.button("Sí", key=f"y_{chat['chat_id']}", use_container_width=True):
+                            borrar_chat_especifico(chat['chat_id'])
+                            if st.session_state.chat_id_actual == chat['chat_id']:
+                                st.session_state.chat_id_actual = str(uuid.uuid4())
+                                st.session_state.titulo_chat_actual = "Nueva Consulta"
+                            del st.session_state[f"confirm_del_{chat['chat_id']}"]
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+                        if cy.button("No", key=f"n_{chat['chat_id']}", use_container_width=True):
+                            del st.session_state[f"confirm_del_{chat['chat_id']}"]
+                            st.rerun()
+
+            st.divider()
+            
+            st.markdown(f"<p style='color:gray !important; font-size:0.8em; font-weight:600; margin-bottom:5px;'>AYUDA Y SOPORTE</p>", unsafe_allow_html=True)
+            st.info("Por favor acudir a **PLANEACIÓN Y ANÁLISIS DE DATOS**.\n\n📧 **Contacto:**\n- data.analitycs@caprepa.com\n- data.analitycs.1@caprepa.com")
+            
+            st.divider()
+            
+            st.markdown(f"""<div style='padding:10px; background-color:{bg_color}; border-radius:8px; border:1px solid {border_color}; margin-bottom:10px;'><p style='margin:0; font-size:0.7em; color:gray !important;'>PERFIL ACTIVO</p><p style='margin:0; font-weight:600; font-size:0.9em; color:{text_color} !important;'>{st.session_state.user_info['usuario']}</p></div>""", unsafe_allow_html=True)
+            
+            components.html(lottie_theme_interactive(), height=125)
+            
+            if not es_admin:
+                st.divider()
+                if st.button("🔄 Volver al Simulador", use_container_width=True):
+                    st.session_state.simulador_completado = False
+                    st.rerun()
+                    
+            if st.button("🚪 Cerrar Sesión", use_container_width=True):
+                st.session_state.logged_in = False
+                st.rerun()
+
+            if st.button("HIDDEN_THEME_BTN"):
+                st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+                st.rerun()
+
+
+        if es_admin:
+            st.markdown(f"<h2 style='color: {text_color} !important;'>🛡️ Panel de Control Global</h2>", unsafe_allow_html=True)
+            
+            with engine.connect() as conn:
+                usuarios_df = pd.read_sql("SELECT id, correo, usuario, pais, marca, rol, estado FROM usuarios_tars ORDER BY id ASC", conn)
+                chats_count = pd.read_sql("SELECT correo_usuario, COUNT(DISTINCT chat_id) as total_chats FROM historial_chat GROUP BY correo_usuario", conn)
+                
+            usuarios_df = pd.merge(usuarios_df, chats_count, left_on="correo", right_on="correo_usuario", how="left")
+            usuarios_df['total_chats'] = usuarios_df['total_chats'].fillna(0).astype(int)
+            
+            usuarios_df = usuarios_df.drop_duplicates(subset=['correo'])
+            if 'correo_usuario' in usuarios_df.columns:
+                usuarios_df.drop(columns=['correo_usuario'], inplace=True)
+                
+            st.markdown(usuarios_df.to_html(classes='tars-table', index=False), unsafe_allow_html=True)
+            
+            st.divider()
+            
+            col_acc, col_perm, col_hist = st.columns([1, 1.2, 1])
+            with col_acc:
+                st.markdown(f"<h4 style='color: {text_color} !important;'>🔐 Seguridad y Acceso</h4>", unsafe_allow_html=True)
+                
+                correo_accion = st.selectbox("Selecciona Usuario a modificar:", usuarios_df['correo'])
+                accion_ejecutar = st.selectbox("Acción a Ejecutar", ["APROBAR ACCESO", "RECHAZAR / BLOQUEAR", "ELIMINAR DEFINITIVAMENTE"])
+                
+                st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
+                if st.button("Ejecutar Estado", use_container_width=True):
+                    with engine.begin() as conn:
+                        if accion_ejecutar == "ELIMINAR DEFINITIVAMENTE":
+                            conn.execute(text(f"DELETE FROM usuarios_tars WHERE correo = '{correo_accion}'"))
+                            msg_exito = "Usuario eliminado permanentemente."
+                        elif accion_ejecutar == "RECHAZAR / BLOQUEAR":
+                            conn.execute(text(f"UPDATE usuarios_tars SET estado = 'RECHAZADO', aprobado = FALSE WHERE correo = '{correo_accion}'"))
+                            msg_exito = "Usuario bloqueado exitosamente."
+                        else:
+                            conn.execute(text(f"UPDATE usuarios_tars SET estado = 'APROBADO', aprobado = TRUE WHERE correo = '{correo_accion}'"))
+                            msg_exito = "Usuario aprobado exitosamente."
+                    st.success(msg_exito)
+                    time.sleep(1)
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+                st.markdown("<br><h5 style='color:gray;'>Restablecer Contraseña</h5>", unsafe_allow_html=True)
+                
+                st.info(f"🔑 Cambiando contraseña de: **{correo_accion}**")
+                
+                nueva_pass = st.text_input("Escribe la nueva contraseña", type="password")
+                if st.button("Cambiar Contraseña", use_container_width=True):
+                    if nueva_pass:
+                        with engine.begin() as conn:
+                            conn.execute(text(f"UPDATE usuarios_tars SET password_hash = '{hash_password(nueva_pass)}' WHERE correo = '{correo_accion}'"))
+                        st.success("Contraseña actualizada exitosamente.")
+                    else:
+                        st.warning("Escribe una contraseña válida.")
+
+            with col_perm:
+                st.markdown(f"<h4 style='color: {text_color} !important;'>🌍 Editar Permisos (Multi-Marca)</h4>", unsafe_allow_html=True)
+                st.info("Permite asignar varios países y marcas a un usuario a la vez.")
+                correo_permiso = st.selectbox("Usuario a Editar Permisos:", usuarios_df['correo'], key="c_perm")
+                
+                paises_todos = list(MARCAS_POR_PAIS.keys())
+                nuevos_paises = st.multiselect("Agregar Países Permitidos:", paises_todos)
+                
+                marcas_todas = []
+                for p in nuevos_paises:
+                    marcas_todas.extend(MARCAS_POR_PAIS[p])
+                
+                nuevos_marcas = st.multiselect("Agregar Marcas Permitidas:", list(set(marcas_todas)))
+                
+                st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
+                if st.button("Actualizar Permisos Globales", use_container_width=True):
+                    if nuevos_paises and nuevos_marcas:
+                        str_p = "|".join(nuevos_paises)
+                        str_m = "|".join(nuevos_marcas)
+                        with engine.begin() as conn:
+                            conn.execute(text(f"UPDATE usuarios_tars SET pais = '{str_p}', marca = '{str_m}' WHERE correo = '{correo_permiso}'"))
+                        st.success("Permisos globales actualizados.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("Selecciona al menos un país y una marca.")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with col_hist:
+                st.markdown(f"<h4 style='color: {text_color} !important;'>🕵️‍♂️ Auditoría de Chats</h4>", unsafe_allow_html=True)
+                usuario_auditar = st.selectbox("Usuario a auditar:", [""] + list(usuarios_df['correo']), key="aud_u")
+                
+                if usuario_auditar:
+                    with engine.connect() as conn:
+                        historial_lista = pd.read_sql(f"SELECT DISTINCT chat_id, titulo_chat, MIN(fecha) as fecha FROM historial_chat WHERE correo_usuario = '{usuario_auditar}' GROUP BY chat_id, titulo_chat ORDER BY fecha DESC", conn)
+                    
+                    if not historial_lista.empty:
+                        chat_a_revisar = st.selectbox("Consulta a leer:", historial_lista['titulo_chat'])
+                        if chat_a_revisar:
+                            chat_id_auditoria = historial_lista[historial_lista['titulo_chat'] == chat_a_revisar]['chat_id'].iloc[0]
+                            mensajes_auditoria = cargar_mensajes_chat(chat_id_auditoria)
+                            
+                            with st.container(height=300):
+                                for msg in mensajes_auditoria:
+                                    if msg['role'] == 'user':
+                                        st.markdown(f"**👤 USUARIO:** {msg['content']}")
+                                    else:
+                                        st.markdown(f"**🤖 TARS:** {msg['content']}")
+                    else:
+                        st.info("Sin consultas registradas.")
+
+        else:
+            # --- LÓGICA DE INTERFAZ ELEGANTE Y NOMBRES PROFESIONALES ---
+            lista_paises_usuario = [p.strip() for p in st.session_state.user_info['pais'].split('|')]
+            lista_marcas_usuario = [m.strip() for m in st.session_state.user_info['marca'].split('|')]
+            
+            st.markdown(f"<h3 style='color: {text_color} !important; margin-bottom: 5px;'>🌐 Panel Operativo</h3>", unsafe_allow_html=True)
+            
+            # Identificamos si es un usuario global para mostrarle los nombres "bonitos"
+            es_global = "Global (Dueños)" in lista_paises_usuario or "TODOS (Global)" in lista_paises_usuario
+            
+            if es_global:
+                paises_disponibles = ["Todos los Países"] + [p for p in MARCAS_POR_PAIS.keys() if p != "Global (Dueños)"]
+            else:
+                paises_disponibles = lista_paises_usuario
+                
+            mostrar_dropdowns = len(paises_disponibles) > 1 or len(lista_marcas_usuario) > 1 or es_global
+            
+            if mostrar_dropdowns:
+                col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1, 2])
+                with col_kpi1:
+                    pais_seleccionado = st.selectbox("Selecciona un País:", paises_disponibles, label_visibility="collapsed")
+                    
+                with col_kpi2:
+                    if pais_seleccionado == "Todos los Países":
+                        marcas_disponibles = ["Todas las Marcas"]
+                    else:
+                        if es_global or "TODAS (Director)" in lista_marcas_usuario or "ACCESO TOTAL" in lista_marcas_usuario:
+                            marcas_disponibles = ["Todas las Marcas"] + [m for m in MARCAS_POR_PAIS.get(pais_seleccionado, []) if m not in ["TODAS (Director)", "TODAS", "ACCESO TOTAL"]]
+                        else:
+                            marcas_disponibles = [m for m in lista_marcas_usuario if m in MARCAS_POR_PAIS.get(pais_seleccionado, [])]
+                    
+                    # Para evitar que el menú se quede vacío si hay un cruce raro de permisos
+                    if not marcas_disponibles: marcas_disponibles = ["Todas las Marcas"]
+                    
+                    marca_seleccionada = st.selectbox("Selecciona una Marca:", marcas_disponibles, label_visibility="collapsed")
+            else:
+                pais_seleccionado = paises_disponibles[0]
+                marca_seleccionada = lista_marcas_usuario[0]
+                
+            st.markdown(f"<h4 style='color:{accent_color} !important; margin-top: 10px;'>Resumen Operativo ({pais_seleccionado} | {marca_seleccionada})</h4>", unsafe_allow_html=True)
+            
+            # --- MENSAJE DE BIENVENIDA MÁGICO (SIN PANTALLA TENUE) ---
+            nombre_corto = st.session_state.user_info['usuario'].split(' ')[0]
+            carga_placeholder = st.empty()
+            
+            # Traducimos de vuelta los nombres bonitos para la consulta de base de datos
+            pais_para_kpis = "Global" if pais_seleccionado == "Todos los Países" else pais_seleccionado
+            marca_para_kpis = "TODAS" if marca_seleccionada == "Todas las Marcas" else marca_seleccionada
+            
+            with carga_placeholder.container():
+                st.markdown(f"""
+                <div style="padding: 15px; border-radius: 8px; background-color: rgba(49, 130, 206, 0.1); border: 1px solid #3182ce; margin-bottom: 20px;">
+                    <h4 style="color: #3182ce !important; margin-top: 0; font-weight: 600;">👋 ¡Bienvenido de vuelta, {nombre_corto}!</h4>
+                    <p style="margin-bottom: 8px; color: {text_color} !important;">Mientras AWS analiza tus métricas operativas, recuerda que puedes pedirme cosas como:</p>
+                    <ul style="margin-bottom: 0; color: {text_color} !important;">
+                        <li>📊 <b>Gráficas:</b> <i>"Dibuja una gráfica de barras con el Top 5 de sucursales con mayor recuperación"</i></li>
+                        <li>📥 <b>Reportes:</b> <i>"Genera un Excel descargable con las rutas en atraso"</i></li>
+                        <li>📎 <b>Análisis:</b> <i>Sube un PDF en el chat y pregúntame sobre las reglas y políticas de la empresa.</i></li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            # Ejecutamos la consulta. La ruedita girará arriba a la derecha.
+            kpis, kpi_error = obtener_kpis(pais_para_kpis, marca_para_kpis)
+            
+            # Borramos la bienvenida cuando terminan de cargar los números
+            carga_placeholder.empty()
+                
+            if kpi_error: st.error(f"🚨 ERROR EN LA BASE DE DATOS: {kpi_error}")
+                
+            st.caption(f"📅 Snapshot Cartera: **{kpis['fecha_corte_cart']}** | 📅 Última Semana Cobranza: **{kpis['fecha_corte_cob']}** | 📅 Trámites Reales: **{kpis['fecha_corte_tram']}**")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric(label="Rutas", value=kpis['rutas'])
+                st.metric(label="Cartera Total", value=kpis['cartera'])
+                st.metric(label="Cuota Cobranza", value=kpis['cuota_cobranza'])
+            with col2:
+                st.metric(label="Clientes Totales", value=kpis['clientes_totales'])
+                st.metric(label="Cartera Corriente", value=kpis['cartera_corriente'])
+                st.metric(label="Recuperación", value=kpis['recuperacion'])
+            with col3:
+                st.metric(label="Clientes al Corriente", value=kpis['clientes_corriente'])
+                st.metric(label="Cartera en Atraso", value=kpis['cartera_atraso'])
+                st.metric(label="Trámites Reales", value=kpis['tramites'])
+            with col4:
+                st.metric(label="% IP (Al corriente)", value=kpis['ip'])
+                st.metric(label="Faltas", value=kpis['faltas'])
+                st.metric(label="Monto Entregado", value=kpis['monto_entregado'])
+
+            st.divider()
+
+            chat_placeholder = st.container()
+            mensajes_db = cargar_mensajes_chat(st.session_state.chat_id_actual)
+            
+            with chat_placeholder:
+                if not mensajes_db:
+                    components.html(lottie_robot_hello(), height=290)
+                    st.markdown(f"<h2 style='text-align:center; color:{text_color} !important; font-weight:600;'>¿En qué te puedo ayudar hoy, {nombre_corto}?</h2>", unsafe_allow_html=True)
+                    
+                    col_sug1, col_sug2, col_sug3 = st.columns(3)
+                    with col_sug1: st.info("📊 **Análisis SQL y Mapas:**\n\nCruza datos, saca métricas 'a la fecha' o pídeme ubicar clientes en el mapa.")
+                    with col_sug2: st.info("📎 **Documentos:**\n\nSube imágenes, Excel o PDF abajo para análisis profundo.")
+                    with col_sug3: st.info("🧠 **Políticas:**\n\nPregúntame sobre la Guía Completa, manuales y requisitos.")
+                    st.markdown("<br><br>", unsafe_allow_html=True)
+                    
+                for msg in mensajes_db:
+                    with st.chat_message(msg["role"]): 
+                        if "```python" in msg["content"] and "st." in msg["content"]:
+                            partes = msg["content"].split("```python")
+                            st.markdown(partes[0])
+                            codigo_py = partes[1].split("```")[0].strip()
+                            try:
+                                exec(codigo_py)
+                            except Exception as e:
+                                st.warning(f"No se pudo renderizar visualización interactiva: {e}")
+                        else:
+                            st.markdown(msg["content"])
+
+            with st.container():
+                st.markdown(f"<p style='font-size:0.85em; color:gray !important; margin-bottom:0;'>📎 <b>Formatos Soportados:</b> Puedes adjuntar PNG, JPG, Excel, PDF o CSV (Máx 5).</p>", unsafe_allow_html=True)
+                archivos_subidos = st.file_uploader("Adjuntar archivos", accept_multiple_files=True, type=['png', 'jpg', 'jpeg', 'pdf', 'xlsx', 'csv'], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
+                
+                if prompt := st.chat_input("Escribe tu solicitud analítica, pide 'el dato a la fecha' o genera un reporte en excel..."):
+                    if len(mensajes_db) == 0:
+                        st.session_state.titulo_chat_actual = prompt[:30] + "..."
+                    
+                    st.session_state.uploader_key += 1
+                    texto_prompt = prompt
+                    es_pdf = False
+                    
+                    if archivos_subidos:
+                        texto_prompt += "\n\n[El usuario adjuntó los siguientes archivos:]"
+                        for archivo in archivos_subidos:
+                            if archivo.name.endswith('.pdf'):
+                                es_pdf = True
+                                texto_prompt += f"\n\n--- Documento PDF: {archivo.name} ---"
+                                try:
+                                    reader = PdfReader(archivo)
+                                    texto_extraido = "".join([page.extract_text() for page in reader.pages if page.extract_text()])
+                                    texto_prompt += f"\n[CONTENIDO DEL PDF]:\n{texto_extraido[:4000]}\n---"
+                                except Exception as e:
+                                    texto_prompt += f"\n[Error al leer PDF: {e}]"
+                            elif archivo.name.endswith('.csv'):
+                                try:
+                                    df_temp = pd.read_csv(archivo)
+                                    texto_prompt += f"\n\n--- Archivo: {archivo.name} ---\n{df_temp.head(10).to_string()}"
+                                except: pass
+                            elif archivo.name.endswith('.xlsx'):
+                                try:
+                                    df_temp = pd.read_excel(archivo)
+                                    texto_prompt += f"\n\n--- Archivo: {archivo.name} ---\n{df_temp.head(10).to_string()}"
+                                except: pass
+
+                    guardar_mensaje(st.session_state.correo_actual, st.session_state.chat_id_actual, st.session_state.titulo_chat_actual, "user", texto_prompt)
+                    
+                    with chat_placeholder:
+                        with st.chat_message("user"): st.markdown(prompt)
+                        with st.chat_message("assistant"):
+                            placeholder_anim = st.empty()
+                            with placeholder_anim:
+                                components.html(lottie_thinking_cube(), height=90)
+                            
+                            try:
+                                # Aseguramos de mandar los nombres exactos a la BD para que no falle la IA
+                                contexto_seguridad = f"[REGLA]: País: '{pais_para_kpis}', Marca: '{marca_para_kpis}'. Modelo: {st.session_state.modelo_seleccionado}. Pregunta: {texto_prompt}"
+                                
+                                palabras_negocio = ["manual", "política", "politica", "guía", "guia", "guía completa", "guia completa", "proceso", "requisito", "garantía", "garantia", "vale amigo", "présico", "presico", "regla", "documento"]
+                                es_pregunta_negocio = any(palabra in prompt.lower() for palabra in palabras_negocio)
+
+                                if (es_pdf or es_pregunta_negocio) and pdf_disponible:
+                                    respuesta = agente_pdf.invoke({"input": contexto_seguridad})
+                                elif sql_disponible:
+                                    respuesta = agente_tars.invoke({"input": contexto_seguridad})
+                                else:
+                                    respuesta = {'output': f"⚠️ El Agente SQL está fuera de línea.\n\n**Diagnóstico:** {error_agente}"}
+
+                                placeholder_anim.empty()
+                                guardar_mensaje(st.session_state.correo_actual, st.session_state.chat_id_actual, st.session_state.titulo_chat_actual, "assistant", respuesta['output'])
+                                
+                                if "```python" in respuesta['output'] and "st." in respuesta['output']:
+                                    partes = respuesta['output'].split("```python")
+                                    st.markdown(partes[0])
+                                    codigo_py = partes[1].split("```")[0].strip()
+                                    try:
+                                        exec(codigo_py)
+                                    except Exception as e:
+                                        st.warning(f"No se pudo renderizar visualización interactiva: {e}")
+                                else:
+                                    st.markdown(respuesta['output'])
+                                    
+                                time.sleep(0.1)
+                                st.rerun()
+                            except Exception as e:
+                                placeholder_anim.empty()
+                                st.error(f"Error en el procesamiento: {e}")
+                                guardar_mensaje(st.session_state.correo_actual, st.session_state.chat_id_actual, st.session_state.titulo_chat_actual, "assistant", str(e))

@@ -110,10 +110,11 @@ Siempre se te enviará un texto oculto con el contexto del usuario: [REGLA]: Pa�
 🧠 REGLA 4 (DICCIONARIO DE DATOS Y LÓGICA BI ESTRICTA - TRADUCCIÓN EXACTA):
 A) TABLA 'cartera_master' (Indicadores de Crédito Rural y Relación a Largo Plazo):
 - 🚨 ¡ES UNA TABLA DE SNAPSHOTS AL CORTE! 🚨 NUNCA sumes el historial completo NI sumes todos los días de una semana. Busca la fecha máxima de la semana solicitada.
-- 🛡️ ESCUDO ANTI-INSEGURIDAD GLOBAL: SIEMPRE excluye la subdirección 'Inseguridad'. Usa la cláusula: `AND subdireccion NOT ILIKE '%%Inseguridad%%'`.
-- "Clientes totales": Recuento de créditos activos al corte.
-- "Clientes al corriente": Clientes que al momento del corte no presentan días de atraso.
-- "Faltas": Clientes que al momento del corte presentan algún adeudo o >= 1 día de atraso.
+- 🛡️ ESCUDO ANTI-INSEGURIDAD GLOBAL (¡CRÍTICO!): SIEMPRE excluye la subdirección 'Inseguridad' PERO PERMITIENDO NULOS. Usa EXACTAMENTE la cláusula: `AND (subdireccion NOT ILIKE '%%Inseguridad%%' OR subdireccion IS NULL)`.
+- 🚨 REGLA DE PAÍSES: Para evitar errores de texto, SIEMPRE usa mayúsculas al filtrar países (ej. `TRIM(UPPER(pais)) = 'NICARAGUA'`).
+- "Clientes totales": OBLIGATORIO usar `SUM(CAST(clientes_totales AS NUMERIC))`
+- "Clientes al corriente": OBLIGATORIO usar `SUM(CAST(clientes_al_corriente AS NUMERIC))`
+- "Faltas": OBLIGATORIO usar `SUM(CAST(faltas AS NUMERIC))`
 - "Índice de Productividad (% IP)": (Clientes al corriente) / (Clientes totales).
 - "Cartera Total": Suma del colocado con interés + Préstamo personal.
 - "Cartera sin atraso": Cartera total que se encuentra de 0 a 7 días de atraso.
@@ -298,15 +299,19 @@ WHERE [TUS FILTROS DE MARCA/PAIS AQUI];
 
 ▶️ PLANTILLA OBLIGATORIA PARA TOTALES DE CARTERA (`cartera_master`):
 WITH UltimoCorte AS (
-    SELECT ruta, MAX(fecha) as ultima_fecha
+    SELECT MAX(fecha) as ultima_fecha
     FROM cartera_master
-    WHERE [TUS FILTROS AQUI] AND subdireccion NOT ILIKE '%%Inseguridad%%'
-    GROUP BY ruta
+    WHERE [TUS FILTROS AQUI] AND (subdireccion NOT ILIKE '%%Inseguridad%%' OR subdireccion IS NULL)
+)
+SELECT [TUS AGREGACIONES AQUI, ej: SUM(CAST(clientes_al_corriente AS NUMERIC)) AS clientes]
+FROM cartera_master 
+WHERE fecha = (SELECT ultima_fecha FROM UltimoCorte)
+  AND [TUS FILTROS AQUI] AND (subdireccion NOT ILIKE '%%Inseguridad%%' OR subdireccion IS NULL);
 )
 SELECT SUM(c.cartera_total) AS cartera_total
 FROM cartera_master c
 INNER JOIN UltimoCorte u ON c.ruta = u.ruta AND c.fecha = u.ultima_fecha
-WHERE [TUS FILTROS AQUI] AND subdireccion NOT ILIKE '%%Inseguridad%%';
+WHERE [TUS FILTROS AQUI] AND (subdireccion NOT ILIKE '%%Inseguridad%%' OR subdireccion IS NULL);
 
 🏆 REGLA 10 (RANKING Y SCORING - "MEJORES NÚMEROS" Y "OPORTUNIDAD DE MEJORA"):
 Si el usuario hace preguntas analíticas como:
